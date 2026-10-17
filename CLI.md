@@ -49,6 +49,8 @@ Compiles every agent's prompt into `build/` inside the sopc folder: one `<agent>
 
 `lock.json` lists, per agent: its `platform_ref`, the prompt's `hash`, the `tools` its SOPs name, and `blocks`: the agent file first, then each block in prompt order, as `{"kind", "id", "hash"}`. `kind` is `agent`, `instruction` or `sop`; a hash is the sha256 of the block's canonical JSON. Groups aren't listed: their blocks are.
 
+An SOP's entry also lists its `rules`: each step, never and warning sign as `{"id", "kind", "index", "text"}`, so QA tools can attribute a violation to one rule. `kind` is `step`, `never` or `warning`; `index` is its 1-based position within that kind; `text` is the source text, trimmed with whitespace collapsed (placeholders not filled). `id` is the first 12 hex characters of sha256(`<sop id>` U+001F `<kind>` U+001F `<text>`): the same in every agent, unchanged by reordering or whitespace, new when the text is edited.
+
 ```sh
 sopc                         # compile ./sops into sops/build
 sopc --check                 # exit 1 if sops/build is out of date (for CI)
@@ -254,7 +256,7 @@ sopc export
 sopc export -C path/to/sops
 ```
 
-The output is `{"config", "instructions", "sops", "agents"}`. `config` holds `sopc.yaml`'s `variables`, `groups` and `sops_heading`, with defaults filled in. Each instruction, SOP and agent is the canonical JSON its `lock.json` hash is taken over (the fields in [FORMAT.md](FORMAT.md), with defaults filled in; a step written as plain text stays a string), plus `file`, its path in the folder. Agents also get `platform` and `platform_id`, and every platform field (`livekit`, `vapi`, `elevenlabs`, `retell`), `null` when unset. Variables, groups and `blocks` keep their order in the file.
+The output is `{"config", "instructions", "sops", "agents"}`. `config` holds `sopc.yaml`'s `variables`, `groups` and `sops_heading`, with defaults filled in. Each instruction, SOP and agent is the canonical JSON its `lock.json` hash is taken over (the fields in [FORMAT.md](FORMAT.md), with defaults filled in; a step written as plain text stays a string), plus `file`, its path in the folder. SOPs also get `rules`, as in `lock.json`. Agents also get `platform` and `platform_id`, and every platform field (`livekit`, `vapi`, `elevenlabs`, `retell`), `null` when unset. Variables, groups and `blocks` keep their order in the file.
 
 Only parsing matters here: a file that can't be read prints `{"valid": false, "issues": [...]}`, as `sopc validate --json` does, and exits 1, but references between files (an unknown block, a missing variable) are left to `sopc validate`.
 

@@ -283,6 +283,7 @@ Set exactly one platform field. Write `context` right after it, then `blocks`, s
 | `duplicate_platform_ref` | error | Two agents point at the same platform agent. |
 | `unknown_block` | error | An agent's `blocks` or a group lists an id that isn't an instruction, SOP or group. |
 | `duplicate_block` | error | A block appears twice in an agent's expanded list (listed twice, or both directly and through a group). |
+| `duplicate_rule` | error | Two steps, two nevers or two warning signs of one SOP have the same text (ignoring whitespace), so they would share a rule id. |
 | `group_cycle` | error | Groups contain each other in a loop. |
 | `unset_variable` | error | A placeholder has no value for some agent. |
 | `old_format` | error | A field or folder from the format of sopc v0.0.8 and earlier: `bases/`, `inherits`, `exclude`, `position`, `agents` on a block, `instructions` on an agent, `sop_order`. Run `sopc migrate`. |

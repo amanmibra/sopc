@@ -481,7 +481,7 @@ fn format_reference_lists_every_validation_code() {
     .unwrap();
     let codes: std::collections::BTreeSet<&str> =
         re.captures_iter(&source).map(|c| c.get(1).unwrap().as_str()).collect();
-    assert_eq!(codes.len(), 34, "{codes:?}");
+    assert_eq!(codes.len(), 35, "{codes:?}");
     for code in codes {
         assert!(guide.contains(&format!("`{code}`")), "FORMAT.md doesn't document `{code}`");
     }

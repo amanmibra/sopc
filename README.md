@@ -139,6 +139,7 @@ An SOP reads like a checklist:
 ```
 
 - **Groups** in `sopc.yaml` name a set of blocks many agents share; an agent lists the group like a block.
+- **Every rule has an id.** Each step, never and warning sign gets a stable id in `build/lock.json` and `sopc export`, so call QA can name the exact rule an agent broke. Rewording a rule gives it a new id; reordering doesn't. See [lock.json](CLI.md#sopc).
 - **The format is checked strictly,** and every mistake is reported with its file and line. See the [SOP rules](FORMAT.md#sop-rules). SOPs can also be written in YAML; `sopc convert` switches between the two.
 - Coming from sopc v0.0.8 or earlier? `sopc migrate` converts the folder and checks every prompt stays the same.
 

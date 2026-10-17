@@ -238,7 +238,13 @@ impl Build {
             let blocks: Vec<Json> = r
                 .block_hashes()
                 .into_iter()
-                .map(|(kind, id, hash)| json!({"kind": kind, "id": id, "hash": hash}))
+                .map(|(kind, id, hash)| {
+                    let mut entry = json!({"kind": kind, "id": id, "hash": hash});
+                    if let Some(sop) = r.sops().find(|s| kind == "sop" && s.id == id) {
+                        entry["rules"] = sop.rules().iter().map(|rule| rule.to_json()).collect();
+                    }
+                    entry
+                })
                 .collect();
             agents.insert(
                 id.clone(),

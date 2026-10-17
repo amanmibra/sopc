@@ -5,6 +5,7 @@
 //! canonical JSON. They must stay in sync with spec/*.schema.json (a test checks this);
 //! changing their order changes every hash in every lock.json.
 
+use crate::text::sha256_hex;
 use serde_json::{json, Value as Json};
 use serde_yaml_ng::{Mapping, Value};
 
@@ -56,6 +57,39 @@ impl Step {
     }
 }
 
+/// One rule of a procedure: a step, a "never" (forbidden action) or a warning sign, with an id
+/// that QA tools can attribute a violation to.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Rule {
+    pub id: String,
+    /// "step", "never" or "warning".
+    pub kind: &'static str,
+    /// 1-based position among the rules of its kind.
+    pub index: usize,
+    /// The source text (placeholders not filled), trimmed, whitespace collapsed.
+    pub text: String,
+}
+
+impl Rule {
+    pub fn to_json(&self) -> Json {
+        json!({"id": self.id, "kind": self.kind, "index": self.index, "text": self.text})
+    }
+}
+
+/// Text trimmed, with each run of whitespace inside it collapsed to one space.
+pub fn normalize_rule_text(text: &str) -> String {
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// A rule's id: the first 12 hex characters of sha256("<procedure>\x1f<kind>\x1f<normalized text>").
+/// It changes when the text does (an edited rule is a new rule), not when rules are reordered or
+/// only whitespace changes, and it is the same for every agent (placeholders aren't filled).
+pub fn rule_id(procedure: &str, kind: &str, text: &str) -> String {
+    let mut hash = sha256_hex(&format!("{procedure}\x1f{kind}\x1f{}", normalize_rule_text(text)));
+    hash.truncate(12);
+    hash
+}
+
 /// Shared prompt text that isn't a procedure: instructions/<id>.md.
 #[derive(Clone, Debug, Default)]
 pub struct Instruction {
@@ -76,6 +110,24 @@ pub struct Sop {
     pub procedure_steps: Vec<Step>,
     pub forbidden_actions: Vec<Step>,
     pub warning_signs: Vec<Step>,
+}
+
+impl Sop {
+    /// Its steps, then its nevers, then its warning signs, each with its id.
+    pub fn rules(&self) -> Vec<Rule> {
+        let kinds =
+            [("step", &self.procedure_steps), ("never", &self.forbidden_actions), ("warning", &self.warning_signs)];
+        let mut out = vec![];
+        for (kind, list) in kinds {
+            out.extend(list.iter().enumerate().map(|(i, s)| Rule {
+                id: rule_id(&self.id, kind, &s.text),
+                kind,
+                index: i + 1,
+                text: normalize_rule_text(&s.text),
+            }));
+        }
+        out
+    }
 }
 
 /// An instruction or an SOP: what an agent's `blocks` list names (besides groups).

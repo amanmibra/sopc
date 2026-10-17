@@ -23,22 +23,138 @@
         {
           "kind": "sop",
           "id": "allergen-check",
-          "hash": "45ffbd3470539f174a2e5ba93cc9c0a54a93f0168f722be8b9b332dbfc729846"
+          "hash": "45ffbd3470539f174a2e5ba93cc9c0a54a93f0168f722be8b9b332dbfc729846",
+          "rules": [
+            {
+              "id": "5cc0634f287a",
+              "kind": "step",
+              "index": 1,
+              "text": "Ask if anyone in the order has a food allergy"
+            },
+            {
+              "id": "fb48cd18b80b",
+              "kind": "step",
+              "index": 2,
+              "text": "Name the specific allergen back to the customer"
+            },
+            {
+              "id": "1b4da7ef2c2f",
+              "kind": "step",
+              "index": 3,
+              "text": "Check each item the customer ordered against {{menu_allergen_link}}"
+            },
+            {
+              "id": "e09a4490b368",
+              "kind": "never",
+              "index": 1,
+              "text": "Never say an item is \"allergen-free\" or \"safe\""
+            },
+            {
+              "id": "f45909944f75",
+              "kind": "never",
+              "index": 2,
+              "text": "Never place the order before allergens are confirmed"
+            },
+            {
+              "id": "a0be551a8132",
+              "kind": "warning",
+              "index": 1,
+              "text": "Customer mentions anaphylaxis or an EpiPen; transfer to {{staff_transfer}}"
+            }
+          ]
         },
         {
           "kind": "sop",
           "id": "delivery-handling",
-          "hash": "cb9c9909a4c19a1cb8a448ac066b1782775ea0691ca499c19d04917fdf6c8427"
+          "hash": "cb9c9909a4c19a1cb8a448ac066b1782775ea0691ca499c19d04917fdf6c8427",
+          "rules": [
+            {
+              "id": "5ad54878b189",
+              "kind": "step",
+              "index": 1,
+              "text": "Ask for the full delivery address"
+            },
+            {
+              "id": "1593810e2972",
+              "kind": "step",
+              "index": 2,
+              "text": "Check the address is inside the delivery zone"
+            },
+            {
+              "id": "bdb8ae0ceb3d",
+              "kind": "step",
+              "index": 3,
+              "text": "Tell the customer the estimated delivery time"
+            }
+          ]
         },
         {
           "kind": "sop",
           "id": "large-orders",
-          "hash": "606c0b76c68a614b67a0f0c075ea3acc829752301ffbdb96dadd74ec37962482"
+          "hash": "606c0b76c68a614b67a0f0c075ea3acc829752301ffbdb96dadd74ec37962482",
+          "rules": [
+            {
+              "id": "dd4226e4f60f",
+              "kind": "step",
+              "index": 1,
+              "text": "Confirm the full item list back to the customer"
+            },
+            {
+              "id": "219e1d1ae319",
+              "kind": "step",
+              "index": 2,
+              "text": "Check kitchen capacity for the requested time"
+            },
+            {
+              "id": "6ca1992cb890",
+              "kind": "step",
+              "index": 3,
+              "text": "Offer the earliest time the kitchen can meet"
+            },
+            {
+              "id": "adc9957b2b41",
+              "kind": "never",
+              "index": 1,
+              "text": "Never promise a pickup time the kitchen hasn't confirmed"
+            },
+            {
+              "id": "146df3281a1f",
+              "kind": "warning",
+              "index": 1,
+              "text": "Customer asks for catering or staff on site; transfer to {{staff_transfer}}"
+            }
+          ]
         },
         {
           "kind": "sop",
           "id": "reservations",
-          "hash": "7538225b03e2dc907320f025f68afd0a29050b24fabe4e546f760788fba00806"
+          "hash": "7538225b03e2dc907320f025f68afd0a29050b24fabe4e546f760788fba00806",
+          "rules": [
+            {
+              "id": "a6e4043f5e3e",
+              "kind": "step",
+              "index": 1,
+              "text": "Ask for party size, date and time"
+            },
+            {
+              "id": "4cae5bfbbc4a",
+              "kind": "step",
+              "index": 2,
+              "text": "Check availability"
+            },
+            {
+              "id": "b635375f0199",
+              "kind": "step",
+              "index": 3,
+              "text": "Confirm the booking details and the name on the reservation"
+            },
+            {
+              "id": "39811b2ad5c7",
+              "kind": "never",
+              "index": 1,
+              "text": "Never double-book a table"
+            }
+          ]
         },
         {
           "kind": "instruction",
@@ -77,12 +193,76 @@
         {
           "kind": "sop",
           "id": "allergen-check",
-          "hash": "45ffbd3470539f174a2e5ba93cc9c0a54a93f0168f722be8b9b332dbfc729846"
+          "hash": "45ffbd3470539f174a2e5ba93cc9c0a54a93f0168f722be8b9b332dbfc729846",
+          "rules": [
+            {
+              "id": "5cc0634f287a",
+              "kind": "step",
+              "index": 1,
+              "text": "Ask if anyone in the order has a food allergy"
+            },
+            {
+              "id": "fb48cd18b80b",
+              "kind": "step",
+              "index": 2,
+              "text": "Name the specific allergen back to the customer"
+            },
+            {
+              "id": "1b4da7ef2c2f",
+              "kind": "step",
+              "index": 3,
+              "text": "Check each item the customer ordered against {{menu_allergen_link}}"
+            },
+            {
+              "id": "e09a4490b368",
+              "kind": "never",
+              "index": 1,
+              "text": "Never say an item is \"allergen-free\" or \"safe\""
+            },
+            {
+              "id": "f45909944f75",
+              "kind": "never",
+              "index": 2,
+              "text": "Never place the order before allergens are confirmed"
+            },
+            {
+              "id": "a0be551a8132",
+              "kind": "warning",
+              "index": 1,
+              "text": "Customer mentions anaphylaxis or an EpiPen; transfer to {{staff_transfer}}"
+            }
+          ]
         },
         {
           "kind": "sop",
           "id": "reservations",
-          "hash": "7538225b03e2dc907320f025f68afd0a29050b24fabe4e546f760788fba00806"
+          "hash": "7538225b03e2dc907320f025f68afd0a29050b24fabe4e546f760788fba00806",
+          "rules": [
+            {
+              "id": "a6e4043f5e3e",
+              "kind": "step",
+              "index": 1,
+              "text": "Ask for party size, date and time"
+            },
+            {
+              "id": "4cae5bfbbc4a",
+              "kind": "step",
+              "index": 2,
+              "text": "Check availability"
+            },
+            {
+              "id": "b635375f0199",
+              "kind": "step",
+              "index": 3,
+              "text": "Confirm the booking details and the name on the reservation"
+            },
+            {
+              "id": "39811b2ad5c7",
+              "kind": "never",
+              "index": 1,
+              "text": "Never double-book a table"
+            }
+          ]
         },
         {
           "kind": "instruction",
@@ -124,17 +304,107 @@
         {
           "kind": "sop",
           "id": "allergen-check",
-          "hash": "45ffbd3470539f174a2e5ba93cc9c0a54a93f0168f722be8b9b332dbfc729846"
+          "hash": "45ffbd3470539f174a2e5ba93cc9c0a54a93f0168f722be8b9b332dbfc729846",
+          "rules": [
+            {
+              "id": "5cc0634f287a",
+              "kind": "step",
+              "index": 1,
+              "text": "Ask if anyone in the order has a food allergy"
+            },
+            {
+              "id": "fb48cd18b80b",
+              "kind": "step",
+              "index": 2,
+              "text": "Name the specific allergen back to the customer"
+            },
+            {
+              "id": "1b4da7ef2c2f",
+              "kind": "step",
+              "index": 3,
+              "text": "Check each item the customer ordered against {{menu_allergen_link}}"
+            },
+            {
+              "id": "e09a4490b368",
+              "kind": "never",
+              "index": 1,
+              "text": "Never say an item is \"allergen-free\" or \"safe\""
+            },
+            {
+              "id": "f45909944f75",
+              "kind": "never",
+              "index": 2,
+              "text": "Never place the order before allergens are confirmed"
+            },
+            {
+              "id": "a0be551a8132",
+              "kind": "warning",
+              "index": 1,
+              "text": "Customer mentions anaphylaxis or an EpiPen; transfer to {{staff_transfer}}"
+            }
+          ]
         },
         {
           "kind": "sop",
           "id": "delivery-handling",
-          "hash": "cb9c9909a4c19a1cb8a448ac066b1782775ea0691ca499c19d04917fdf6c8427"
+          "hash": "cb9c9909a4c19a1cb8a448ac066b1782775ea0691ca499c19d04917fdf6c8427",
+          "rules": [
+            {
+              "id": "5ad54878b189",
+              "kind": "step",
+              "index": 1,
+              "text": "Ask for the full delivery address"
+            },
+            {
+              "id": "1593810e2972",
+              "kind": "step",
+              "index": 2,
+              "text": "Check the address is inside the delivery zone"
+            },
+            {
+              "id": "bdb8ae0ceb3d",
+              "kind": "step",
+              "index": 3,
+              "text": "Tell the customer the estimated delivery time"
+            }
+          ]
         },
         {
           "kind": "sop",
           "id": "large-orders",
-          "hash": "606c0b76c68a614b67a0f0c075ea3acc829752301ffbdb96dadd74ec37962482"
+          "hash": "606c0b76c68a614b67a0f0c075ea3acc829752301ffbdb96dadd74ec37962482",
+          "rules": [
+            {
+              "id": "dd4226e4f60f",
+              "kind": "step",
+              "index": 1,
+              "text": "Confirm the full item list back to the customer"
+            },
+            {
+              "id": "219e1d1ae319",
+              "kind": "step",
+              "index": 2,
+              "text": "Check kitchen capacity for the requested time"
+            },
+            {
+              "id": "6ca1992cb890",
+              "kind": "step",
+              "index": 3,
+              "text": "Offer the earliest time the kitchen can meet"
+            },
+            {
+              "id": "adc9957b2b41",
+              "kind": "never",
+              "index": 1,
+              "text": "Never promise a pickup time the kitchen hasn't confirmed"
+            },
+            {
+              "id": "146df3281a1f",
+              "kind": "warning",
+              "index": 1,
+              "text": "Customer asks for catering or staff on site; transfer to {{staff_transfer}}"
+            }
+          ]
         },
         {
           "kind": "instruction",

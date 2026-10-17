@@ -299,6 +299,92 @@ fn unknown_field_is_rejected() {
     assert_eq!(codes(&load_issues(r.root())), ["invalid_field"]);
 }
 
+fn rule(text: &str) -> Step {
+    Step { plain: true, text: text.into(), ..Step::default() }
+}
+
+fn sop_with(steps: &[&str], nevers: &[&str]) -> Sop {
+    Sop {
+        id: "returns".into(),
+        procedure_steps: steps.iter().map(|t| rule(t)).collect(),
+        forbidden_actions: nevers.iter().map(|t| rule(t)).collect(),
+        ..Sop::default()
+    }
+}
+
+#[test]
+fn rule_ids_follow_the_spec() {
+    // sha256("allergen-check\x1fstep\x1fAsk if anyone in the order has a food allergy")[..12]
+    assert_eq!(rule_id("allergen-check", "step", "Ask if anyone in the order has a food allergy"), "5cc0634f287a");
+    let rules = sop_with(&["Ask for the order", "Read it back"], &["Never guess"]).rules();
+    let summary: Vec<(&str, usize, &str)> = rules.iter().map(|r| (r.kind, r.index, r.text.as_str())).collect();
+    assert_eq!(summary, [("step", 1, "Ask for the order"), ("step", 2, "Read it back"), ("never", 1, "Never guess")]);
+    assert!(rules.iter().all(|r| r.id.len() == 12 && r.id.chars().all(|c| c.is_ascii_hexdigit())));
+}
+
+#[test]
+fn rule_ids_ignore_whitespace_but_not_text() {
+    let id = rule_id("returns", "step", "Ask for the order number");
+    assert_eq!(rule_id("returns", "step", "  Ask  for the\n  order\tnumber \n"), id);
+    assert_ne!(rule_id("returns", "step", "Ask for the order number."), id);
+    assert_ne!(rule_id("returns", "step", "ask for the order number"), id);
+    assert_ne!(rule_id("returns", "never", "Ask for the order number"), id, "the kind is part of the id");
+    assert_ne!(rule_id("refunds", "step", "Ask for the order number"), id, "the procedure is part of the id");
+    // Placeholders are hashed as written, so every agent gets the same id.
+    assert_ne!(rule_id("returns", "step", "Call {{store_phone}}"), rule_id("returns", "step", "Call 555-0100"));
+}
+
+#[test]
+fn rule_ids_survive_reordering() {
+    let ids = |sop: Sop| -> BTreeMap<String, String> { sop.rules().into_iter().map(|r| (r.text, r.id)).collect() };
+    let before = ids(sop_with(&["A", "B", "C"], &["Never D"]));
+    let after = ids(sop_with(&["C", "A", "B"], &["Never D"]));
+    assert_eq!(before, after);
+}
+
+#[test]
+fn a_rule_twice_in_a_procedure_is_an_error() {
+    let r = Repo::new();
+    r.edit(
+        "procedures/allergen-check.yaml",
+        "  - Name the specific allergen back to the customer\n",
+        "  - Name the specific allergen back to the customer\n  - Ask if anyone  in the order has a food allergy\n",
+    );
+    let issues = validate(&ws(r.root()));
+    assert_eq!(codes(&issues), ["duplicate_rule"]);
+    assert_eq!(issues[0].message, "step 1 and step 3 have the same text; remove one");
+    // The same text as a step and as a never is two rules.
+    let r = Repo::new();
+    r.edit(
+        "procedures/allergen-check.yaml",
+        "  - Never say an item",
+        "  - Ask if anyone in the order has a food allergy\n  - Never say an item",
+    );
+    assert!(validate(&ws(r.root())).is_empty());
+}
+
+#[test]
+fn lock_and_export_list_each_procedures_rules() {
+    let lock = build(&sops()).lock();
+    let blocks = lock["agents"]["sakura-sushi"]["blocks"].as_array().unwrap();
+    let allergen = blocks.iter().find(|b| b["id"] == "allergen-check").unwrap();
+    let rules = allergen["rules"].as_array().unwrap();
+    assert_eq!(rules.len(), 6);
+    assert_eq!(
+        rules[0],
+        serde_json::json!({"id": "5cc0634f287a", "kind": "step", "index": 1,
+            "text": "Ask if anyone in the order has a food allergy"})
+    );
+    assert_eq!((&rules[3]["kind"], &rules[3]["index"]), (&serde_json::json!("never"), &serde_json::json!(1)));
+    assert!(blocks.iter().filter(|b| b["kind"] != "sop").all(|b| b.get("rules").is_none()));
+    // The same procedure has the same rules in every agent, and in export.
+    let tonys = lock["agents"]["tonys-pizza"]["blocks"].as_array().unwrap();
+    assert_eq!(tonys.iter().find(|b| b["id"] == "allergen-check").unwrap()["rules"], allergen["rules"]);
+    let export = crate::workspace::export(&ws(&sops()));
+    let sop = export["sops"].as_array().unwrap().iter().find(|s| s["id"] == "allergen-check").unwrap();
+    assert_eq!(sop["rules"], allergen["rules"]);
+}
+
 #[test]
 fn missing_goal_is_a_warning() {
     let r = Repo::new();

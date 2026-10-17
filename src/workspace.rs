@@ -396,7 +396,8 @@ fn check_steps(map: &Mapping, path: &str, issues: &mut Vec<Issue>) -> bool {
 // --- export ------------------------------------------------------------------------------------
 
 /// Every block's parsed fields, for `sopc export`: each block's canonical JSON (the fields its
-/// lock.json hash is taken over) plus the file it was read from, and sopc.yaml's settings.
+/// lock.json hash is taken over) plus the file it was read from, and sopc.yaml's settings. SOPs
+/// also get `rules`, as in lock.json.
 pub fn export(ws: &Workspace) -> serde_json::Value {
     fn with_file(canonical: String, file: String) -> serde_json::Value {
         let mut v: serde_json::Value = serde_json::from_str(&canonical).expect("canonical JSON parses");
@@ -415,10 +416,15 @@ pub fn export(ws: &Workspace) -> serde_json::Value {
         v
     });
     let instructions = ws.instructions.iter().map(|i| with_file(i.canonical_json(), instruction_path(&i.id)));
+    let sops = ws.sops.iter().map(|s| {
+        let mut v = with_file(s.canonical_json(), s.file.clone());
+        v["rules"] = s.rules().iter().map(|r| r.to_json()).collect();
+        v
+    });
     serde_json::json!({
         "config": {"variables": vars, "groups": groups, "sops_heading": ws.config.sops_heading},
         "instructions": instructions.collect::<Vec<_>>(),
-        "sops": ws.sops.iter().map(|s| with_file(s.canonical_json(), s.file.clone())).collect::<Vec<_>>(),
+        "sops": sops.collect::<Vec<_>>(),
         "agents": agents.collect::<Vec<_>>(),
     })
 }
@@ -459,6 +465,22 @@ pub fn validate(ws: &Workspace) -> Vec<Issue> {
         }
     }
     issues.extend(group_cycles(ws));
+
+    for s in &ws.sops {
+        let rules = s.rules();
+        for (n, rule) in rules.iter().enumerate() {
+            if let Some(first) = rules[..n].iter().find(|r| r.id == rule.id) {
+                let msg = format!(
+                    "{} {} and {} {} have the same text; remove one",
+                    rule_label(rule.kind),
+                    first.index,
+                    rule_label(rule.kind),
+                    rule.index
+                );
+                issues.push(Issue::error("duplicate_rule", &s.file, msg));
+            }
+        }
+    }
 
     for s in ws.sops.iter().filter(|s| s.description.trim().is_empty()) {
         issues.push(Issue::warning(
@@ -503,6 +525,15 @@ pub fn validate(ws: &Workspace) -> Vec<Issue> {
         }
     }
     issues
+}
+
+/// How a rule kind is named in messages.
+fn rule_label(kind: &str) -> &'static str {
+    match kind {
+        "step" => "step",
+        "never" => "never",
+        _ => "warning sign",
+    }
 }
 
 pub fn for_each_string(v: &serde_json::Value, f: &mut dyn FnMut(&str)) {
