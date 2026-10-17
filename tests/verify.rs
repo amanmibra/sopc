@@ -101,7 +101,7 @@ fn copy_dir(src: &Path, dst: &Path) {
 }
 
 /// Agents added to the fixture's three LiveKit ones: (sopc id, platform line).
-const AGENTS: [(&str, &str); 8] = [
+const AGENTS: [(&str, &str); 11] = [
     ("el-sync", "elevenlabs: el_sync"),
     ("el-flow", "elevenlabs: el_flow"),
     ("vapi-drift", "vapi: asst_drift"),
@@ -110,7 +110,31 @@ const AGENTS: [(&str, &str); 8] = [
     ("retell-states", "retell: agent_states"),
     ("retell-flow", "retell: agent_flow"),
     ("retell-draft", "retell: agent_draft"),
+    ("el-typo", "elevenlabs: el_typo"),
+    ("vapi-mcp", "vapi: asst_mcp"),
+    ("vapi-badtool", "vapi: asst_badtool"),
 ];
+
+/// The tools the fixture's agents name (the SOPs' tools, and get_sop for tool-delivered SOPs).
+const TOOLS: [&str; 7] = [
+    "check_capacity",
+    "check_delivery_zone",
+    "check_reservations",
+    "get_sop",
+    "lookup_allergens",
+    "place_order",
+    "transfer_to_staff",
+];
+
+/// Tool definitions named `names`, as `{"type", "name"}`.
+fn named(names: &[&str]) -> Json {
+    names.iter().map(|n| json!({"type": "custom", "name": n})).collect()
+}
+
+/// Vapi function tools named `names`.
+fn functions(names: &[&str]) -> Json {
+    names.iter().map(|n| json!({"type": "function", "function": {"name": n}})).collect()
+}
 
 /// The fixture with an agent per case, and each agent's compiled prompt.
 fn workspace() -> (tempfile::TempDir, PathBuf, BTreeMap<String, String>) {
@@ -134,25 +158,88 @@ fn workspace() -> (tempfile::TempDir, PathBuf, BTreeMap<String, String>) {
 
 /// Each platform's API, answering for the agents in AGENTS.
 fn routes(prompts: &BTreeMap<String, String>) -> BTreeMap<String, (u16, Json)> {
-    let el = |prompt: &str, workflow: Json| json!({"agent_id": "x", "conversation_config": {"agent": {"prompt": {"prompt": prompt}}}, "workflow": workflow});
+    // `tools` holds the prompt's tool fields: tools, tool_ids and built_in_tools.
+    let el = |prompt: &str, tools: Json, workflow: Json| {
+        let mut config = tools;
+        config["prompt"] = json!(prompt);
+        json!({"agent_id": "x", "conversation_config": {"agent": {"prompt": config}}, "workflow": workflow})
+    };
     // Windows line endings and trailing spaces don't count as drift.
     let crlf = prompts["el-sync"].replace('\n', "\r\n") + "  \r\n";
     let drifted = prompts["vapi-drift"].replace("Takeout and reservations", "Takeout only tonight");
     let flow = json!({
-        "nodes": {"start_node": {"type": "start"}, "billing": {"type": "override_agent"}, "end_node": {"type": "end"}},
+        "nodes": {"start_node": {"type": "start"}, "billing": {"type": "override_agent", "additional_tool_ids": ["tool_cap"]}, "end_node": {"type": "end"}},
         "edges": {}
     });
     let retell_agent = |engine: Json| json!({"agent_id": "x", "response_engine": engine});
     let versions = |items: Json| json!({"items": items, "has_more": false});
-    let llm = |prompt: &str| json!({"general_prompt": prompt, "states": []});
+    let llm = |prompt: &str| json!({"general_prompt": prompt, "states": [], "general_tools": named(&TOOLS)});
+    let vapi = |prompt: &str, model: Json| {
+        let mut model = model;
+        model["messages"] = json!([{"role": "system", "content": prompt}]);
+        json!({"id": "x", "model": model})
+    };
     let entries = [
-        ("/v1/convai/agents/el_sync", 200, el(&crlf, json!({"nodes": {}, "edges": {}}))),
-        ("/v1/convai/agents/el_flow", 200, el("anything", flow)),
+        // Inline tools, workspace tools by id, and an unset built-in tool.
+        (
+            "/v1/convai/agents/el_sync",
+            200,
+            el(
+                &crlf,
+                json!({"tools": named(&TOOLS[..5]), "tool_ids": ["tool_place", "tool_staff"], "built_in_tools": {"end_call": null}}),
+                json!({"nodes": {}, "edges": {}}),
+            ),
+        ),
+        (
+            "/v1/convai/tools/tool_place",
+            200,
+            json!({"id": "tool_place", "tool_config": {"type": "webhook", "name": "place_order"}}),
+        ),
+        (
+            "/v1/convai/tools/tool_staff",
+            200,
+            json!({"id": "tool_staff", "tool_config": {"type": "client", "name": "transfer_to_staff"}}),
+        ),
+        (
+            "/v1/convai/tools/tool_cap",
+            200,
+            json!({"id": "tool_cap", "tool_config": {"type": "webhook", "name": "check_capacity"}}),
+        ),
+        // check_capacity comes from a workflow node.
+        ("/v1/convai/agents/el_flow", 200, el("anything", json!({"tools": named(&TOOLS[1..])}), flow)),
+        // A typo, a case difference, a missing tool and a system tool no SOP names.
+        (
+            "/v1/convai/agents/el_typo",
+            200,
+            el(
+                &prompts["el-typo"],
+                json!({
+                    "tools": named(&["check_delivery_zone", "check_reservations", "get_sop", "lookup_alergens", "Place_Order", "transfer_to_staff"]),
+                    "built_in_tools": {"end_call": {"name": "end_call", "type": "system"}, "transfer_to_number": null}
+                }),
+                json!({}),
+            ),
+        ),
         (
             "/assistant/asst_drift",
             200,
-            json!({"id": "asst_drift", "model": {"messages": [{"role": "system", "content": drifted}]}}),
+            vapi(&drifted, json!({"tools": functions(&TOOLS[..6]), "toolIds": ["vt_staff"]})),
         ),
+        (
+            "/tool/vt_staff",
+            200,
+            json!({"id": "vt_staff", "type": "function", "function": {"name": "transfer_to_staff"}}),
+        ),
+        // An MCP server may provide the tools that aren't listed.
+        (
+            "/assistant/asst_mcp",
+            200,
+            vapi(
+                &prompts["vapi-mcp"],
+                json!({"tools": [{"type": "mcp", "server": {"url": "https://x"}}, {"type": "transferCall"}], "toolIds": []}),
+            ),
+        ),
+        ("/assistant/asst_badtool", 200, vapi(&prompts["vapi-badtool"], json!({"toolIds": ["vt_gone"]}))),
         // Version 4 is a draft with an edited prompt; version 3 is published and serves calls.
         (
             "/list-agent-versions/agent_sync?limit=1000&sort_order=descending",
@@ -187,10 +274,12 @@ fn routes(prompts: &BTreeMap<String, String>) -> BTreeMap<String, (u16, Json)> {
             versions(json!([{"version": 1, "is_published": true}])),
         ),
         ("/get-agent/agent_states?version=1", 200, retell_agent(json!({"type": "retell-llm", "llm_id": "llm_states"}))),
+        // Tools split between the LLM and a state.
         (
             "/get-retell-llm/llm_states",
             200,
-            json!({"general_prompt": "x", "states": [{"name": "a", "state_prompt": "Greet."}]}),
+            json!({"general_prompt": "x", "general_tools": named(&TOOLS[..3]),
+                   "states": [{"name": "a", "state_prompt": "Greet.", "tools": named(&TOOLS[3..])}]}),
         ),
         (
             "/list-agent-versions/agent_flow?limit=1000&sort_order=descending",
@@ -200,7 +289,17 @@ fn routes(prompts: &BTreeMap<String, String>) -> BTreeMap<String, (u16, Json)> {
         (
             "/get-agent/agent_flow?version=0",
             200,
-            retell_agent(json!({"type": "conversation-flow", "conversation_flow_id": "f"})),
+            retell_agent(json!({"type": "conversation-flow", "conversation_flow_id": "flow_1", "version": 2})),
+        ),
+        // Tools of the flow, a component, and a node.
+        (
+            "/get-conversation-flow/flow_1?version=2",
+            200,
+            json!({
+                "conversation_flow_id": "flow_1", "tools": named(&TOOLS[..4]),
+                "components": [{"name": "c", "tools": named(&TOOLS[4..6]), "nodes": []}],
+                "nodes": [{"id": "n", "type": "subagent", "tools": named(&TOOLS[6..])}, {"id": "f", "type": "function", "tool_id": "t1", "tool_type": "local"}]
+            }),
         ),
         // Never published: the latest draft is compared, with a note.
         (
@@ -241,7 +340,13 @@ fn verify_reports_every_agent() {
     // The drift is shown as a diff from the compiled prompt to the live one.
     assert!(out.stdout.contains("--- compiled/vapi-drift.prompt.md\n+++ live/vapi:asst_drift\n"), "{}", out.stdout);
     assert!(out.stdout.contains("\n+Luigi's is a sit-down Italian restaurant in Queens. Takeout only tonight"));
-    assert!(out.stdout.ends_with("\n3 in sync, 1 drifted, 3 not comparable, 3 skipped, 1 error\n"), "{}", out.stdout);
+    assert!(
+        out.stdout.ends_with(
+            "\n6 in sync, 1 drifted, 3 not comparable, 3 skipped, 1 error, 1 with missing tools, 1 tool error\n"
+        ),
+        "{}",
+        out.stdout
+    );
     // Only GETs, with each platform's auth header.
     let seen = seen.lock().unwrap();
     assert!(seen.iter().all(|(req, _)| req.starts_with("GET ")), "{seen:?}");
@@ -268,7 +373,8 @@ fn verify_filters_by_id_and_rejects_unknown_ones() {
     let out = verify(&root, &url, &["vapi:asst_drift"], &[]);
     assert_eq!(out.code, 1);
     assert!(out.stdout.ends_with("\n1 drifted\n"), "{}", out.stdout);
-    assert_eq!(seen.lock().unwrap().len(), 1);
+    // The assistant, and the saved tool it lists by id.
+    assert_eq!(seen.lock().unwrap().len(), 2);
     let out = verify(&root, &url, &["nope"], &[]);
     assert_eq!(out.code, 1);
     assert!(out.stderr.contains("unknown agent(s): nope"), "{}", out.stderr);
@@ -294,19 +400,29 @@ fn verify_json_report() {
     assert_eq!(out.code, 1);
     let report: Json = serde_json::from_str(&out.stdout).unwrap();
     assert_eq!(report["ok"], false);
-    assert_eq!(report["summary"], json!({"in_sync": 1, "drifted": 1, "not_comparable": 0, "skipped": 1, "error": 1}));
+    assert_eq!(
+        report["summary"],
+        json!({"in_sync": 1, "drifted": 1, "not_comparable": 0, "skipped": 1, "error": 1, "missing_tools": 0, "tool_errors": 0})
+    );
     let agents = report["agents"].as_array().unwrap();
     let ids: Vec<&str> = agents.iter().map(|a| a["id"].as_str().unwrap()).collect();
     assert_eq!(ids, ["el-sync", "vapi-drift", "vapi-gone", "luigis-trattoria"]);
+    let referenced: Vec<Json> =
+        TOOLS.iter().map(|t| json!({"name": t, "required": (["get_sop", "lookup_allergens"].contains(t))})).collect();
     assert_eq!(
         agents[0],
         json!({"id": "el-sync", "platform": "elevenlabs", "platform_id": "el_sync", "platform_ref": "elevenlabs:el_sync",
-               "status": "in_sync", "reason": null, "diff": null})
+               "status": "in_sync", "reason": null, "diff": null,
+               "tools": {"checked": true, "referenced": referenced, "missing": [], "unreferenced": [], "unconfirmed": [],
+                         "note": null, "error": null}})
     );
     assert_eq!(agents[1]["status"], "drifted");
+    assert_eq!(agents[1]["tools"]["unreferenced"], json!([]));
     assert!(agents[1]["diff"].as_str().unwrap().starts_with("--- compiled/vapi-drift.prompt.md\n+++ live/"));
     assert_eq!(agents[2]["status"], "error");
+    assert_eq!(agents[2]["tools"], Json::Null);
     assert_eq!(agents[3]["status"], "skipped");
+    assert_eq!(agents[3]["tools"], Json::Null);
 }
 
 #[test]
@@ -349,4 +465,73 @@ fn verify_compares_an_unpublished_retell_draft_with_a_note() {
     let agent = &report["agents"][0];
     assert_eq!(agent["status"], "drifted");
     assert_eq!(agent["reason"], "not published on Retell; compared the latest draft");
+}
+
+#[test]
+fn verify_finds_tools_missing_on_the_platform() {
+    let (_dir, root, prompts) = workspace();
+    let (url, _) = mock(routes(&prompts));
+    // The prompt is in sync, but the agent lacks tools its SOPs name.
+    let out = verify(&root, &url, &["el-typo"], &[]);
+    assert_eq!(out.code, 1, "{}", out.stdout);
+    assert!(line(&out, "el-typo").ends_with("in sync"), "{}", out.stdout);
+    for expected in [
+        "  tools: missing check_capacity\n",
+        "  tools: missing lookup_allergens (required step); did you mean lookup_alergens?\n",
+        "  tools: missing place_order; did you mean Place_Order?\n",
+        "  tools: not in any SOP: Place_Order, end_call, lookup_alergens\n",
+    ] {
+        assert!(out.stdout.contains(expected), "{expected:?} not in\n{}", out.stdout);
+    }
+    assert!(out.stdout.ends_with("\n1 in sync, 1 with missing tools\n"), "{}", out.stdout);
+
+    let out = verify(&root, &url, &["--json", "el-typo"], &[]);
+    let report: Json = serde_json::from_str(&out.stdout).unwrap();
+    let tools = &report["agents"][0]["tools"];
+    assert_eq!(
+        tools["missing"],
+        json!([
+            {"name": "check_capacity", "required": false, "suggestion": null},
+            {"name": "lookup_allergens", "required": true, "suggestion": "lookup_alergens"},
+            {"name": "place_order", "required": false, "suggestion": "Place_Order"},
+        ])
+    );
+    assert_eq!(tools["unreferenced"], json!(["Place_Order", "end_call", "lookup_alergens"]));
+    assert_eq!(report["summary"]["missing_tools"], 1);
+    assert_eq!(report["ok"], false);
+}
+
+#[test]
+fn verify_reads_tools_from_every_platform_shape() {
+    let (_dir, root, prompts) = workspace();
+    let (url, seen) = mock(routes(&prompts));
+    // ElevenLabs workflow node tool ids, Vapi tool ids, Retell state tools and conversation flow tools.
+    let out = verify(&root, &url, &["el-flow", "vapi-drift", "retell-states", "retell-flow", "retell-sync"], &[]);
+    assert!(!out.stdout.contains("tools: missing"), "{}", out.stdout);
+    assert!(!out.stdout.contains("tools: error"), "{}", out.stdout);
+    let seen: Vec<String> = seen.lock().unwrap().iter().map(|(r, _)| r.clone()).collect();
+    for path in ["/v1/convai/tools/tool_cap", "/tool/vt_staff", "/get-conversation-flow/flow_1?version=2"] {
+        assert!(seen.contains(&format!("GET {path}")), "{path} not read: {seen:?}");
+    }
+}
+
+#[test]
+fn verify_doesnt_fail_on_tools_an_mcp_server_may_provide() {
+    let (_dir, root, prompts) = workspace();
+    let (url, _) = mock(routes(&prompts));
+    let out = verify(&root, &url, &["vapi-mcp"], &[]);
+    assert_eq!(out.code, 0, "{}", out.stdout);
+    assert!(out.stdout.contains("  tools: not confirmed: check_capacity, "), "{}", out.stdout);
+    assert!(out.stdout.contains("(the agent uses MCP servers, whose tools sopc can't list)\n"), "{}", out.stdout);
+    assert!(out.stdout.contains("  tools: not in any SOP: transferCall\n"), "{}", out.stdout);
+}
+
+#[test]
+fn verify_fails_when_a_tool_cant_be_read() {
+    let (_dir, root, prompts) = workspace();
+    let (url, _) = mock(routes(&prompts));
+    let out = verify(&root, &url, &["vapi-badtool"], &[]);
+    assert_eq!(out.code, 1, "{}", out.stdout);
+    assert!(out.stdout.contains("  tools: error: can't read tool vt_gone: not found on Vapi (HTTP 404)\n"));
+    assert!(out.stdout.ends_with("\n1 in sync, 1 tool error\n"), "{}", out.stdout);
 }

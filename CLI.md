@@ -176,7 +176,7 @@ If no default branch can be found, `affected` selects every agent and prints a w
 
 ## sopc verify
 
-Checks that what runs in production is what's in git: fetches each agent's live prompt from its platform and compares it with the compiled one. Catches hotfixes made in a platform's dashboard, which the next deploy would silently revert. Run it nightly in CI; see the [drift check example](examples/drift-check).
+Checks that what runs in production is what's in git: fetches each agent's live prompt from its platform and compares it with the compiled one, and checks that every tool its SOPs name exists on the live agent. Catches hotfixes made in a platform's dashboard, which the next deploy would silently revert, and tools that were renamed or removed. Run it nightly in CI; see the [drift check example](examples/drift-check).
 
 ```sh
 sopc verify                 # every agent
@@ -188,8 +188,10 @@ sopc verify --json          # for CI
 $ sopc verify
 Verifying 4 agent(s) against their platforms
 luigis-trattoria         elevenlabs  agent_7a1f...                in sync
+  tools: missing lookup_allergens (required step); did you mean lookup_alergens?
+  tools: not in any SOP: end_call, lookup_alergens
 sakura-sushi             vapi        3f0c2d9e-...                 drifted
-tonys-pizza              livekit     tonys-pizza                  skipped: LiveKit: your code loads the prompt; nothing to fetch
+tonys-pizza              livekit     tonys-pizza                  skipped: LiveKit: your code loads the prompt and tools; nothing to fetch
 pasta-bar                retell      agent_51c9...                error: RETELL_API_KEY is not set (needed to read Retell agents)
 
 --- compiled/sakura-sushi.prompt.md
@@ -197,13 +199,13 @@ pasta-bar                retell      agent_51c9...                error: RETELL_
 -Sakura is an omakase and sushi counter in Manhattan. Reservations strongly recommended. No delivery.
 +Sakura is an omakase and sushi counter in Manhattan. Closed for a private event tonight. No delivery.
 
-1 in sync, 1 drifted, 1 skipped, 1 error
+1 in sync, 1 drifted, 1 skipped, 1 error, 1 with missing tools
 ```
 
 | Argument or flag | Effect |
 |---|---|
 | `IDS` | Agents to verify: sopc ids, platform ids or `platform:id` (default: every agent) |
-| `--json` | Prints `{"ok", "summary", "agents": [{"id", "platform", "platform_id", "platform_ref", "status", "reason", "diff"}]}` instead |
+| `--json` | Prints `{"ok", "summary", "agents": [{"id", "platform", "platform_id", "platform_ref", "status", "reason", "diff", "tools"}]}` instead |
 
 The prompt is compiled from the current files in memory; `build/` isn't read. Live and compiled prompts must match exactly, except for line endings and whitespace at the very end. A drifted agent shows a diff from the compiled prompt (`-`) to the live one (`+`).
 
@@ -215,7 +217,23 @@ The prompt is compiled from the current files in memory; `build/` isn't read. Li
 | `skipped` | LiveKit agents: the prompt is loaded by your code, so there's nothing to fetch | |
 | `error` | A key isn't set, the platform refused it, the agent wasn't found, or the platform couldn't be reached | yes |
 
-Exits 1 if any agent drifted or had an error. Only GET requests are sent; sopc never changes anything on a platform. Requests time out after 20 seconds.
+**Tools.** For each agent, sopc collects the tools its SOPs name (`tool:` on steps, nevers and warning signs, groups expanded; a tool is `required` if a `required` step names it), plus `get_sop` when an SOP is delivered by tool, and looks for each one by name among the live agent's tools:
+
+- **missing** (fails): named in an SOP but not on the platform. A live tool with nearly the same name (case, `_` vs `-`, or up to 2 edits) is suggested: `did you mean lookup_alergens?`.
+- **not in any SOP** (information only): on the platform, but no SOP names it, e.g. `end_call`.
+- **not confirmed** (doesn't fail): not listed, but the agent also has tools sopc can't list (MCP servers, Retell shared tools), so they may exist.
+
+Tools are checked for `not comparable` agents too. LiveKit agents and Retell custom LLMs aren't checked: your code defines their tools. A tool that can't be looked up (e.g. a deleted tool id) is an error and fails.
+
+| Platform | Where the tools are read |
+|---|---|
+| ElevenLabs | The agent response: `conversation_config.agent.prompt.tools[].name`, `built_in_tools` (system tools such as `end_call`, by name), and `tool_ids`, plus tool ids on workflow nodes (`additional_tool_ids`); each id is looked up with `GET /v1/convai/tools/{id}` (`tool_config.name`) |
+| Vapi | The assistant response: `model.tools` (`function.name`, else `name`, else the type for built-ins such as `transferCall` and `endCall`), `endCallFunctionEnabled`; each of `model.toolIds` is looked up with `GET /tool/{id}` |
+| Retell | The LLM verify already reads: `general_tools[].name` and `states[].tools[].name`. Conversation flows: `GET /get-conversation-flow/{id}?version=N` (the version the agent uses), every `tools[].name` in the flow, its components and nodes |
+
+With `--json`, each agent's `tools` is `{"checked", "referenced": [{"name", "required"}], "missing": [{"name", "required", "suggestion"}], "unreferenced", "unconfirmed", "note", "error"}`, or `null` when the agent couldn't be read or is on LiveKit. `summary` adds `missing_tools` and `tool_errors` (counts of agents).
+
+Exits 1 if any agent drifted, had an error, or is missing a tool. Only GET requests are sent; sopc never changes anything on a platform. Requests time out after 20 seconds.
 
 | Variable | Used for |
 |---|---|

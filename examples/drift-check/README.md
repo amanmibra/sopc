@@ -18,7 +18,7 @@ Every night (and when started by hand), on your default branch:
 sopc verify
 ```
 
-For each agent, sopc compiles its prompt from the files, fetches the live one with a read-only `GET`, and compares them. The run fails if any agent **drifted** or had an **error** (a missing or refused key, an agent not found on the platform). The output, with a diff for each drifted agent, goes to the log and the run's summary:
+For each agent, sopc compiles its prompt from the files, fetches the live one with a read-only `GET`, and compares them. The run fails if any agent **drifted**, had an **error** (a missing or refused key, an agent not found on the platform), or is **missing a tool** one of its SOPs names. The output, with a diff for each drifted agent, goes to the log and the run's summary:
 
 ```
 sakura-sushi             vapi        3f0c2d9e-...                 drifted
@@ -45,6 +45,7 @@ GitHub emails the workflow's owner when a scheduled run fails. To post to Slack 
 ## When it fails
 
 - **drifted:** someone changed the prompt on the platform. Either copy the change into the right instruction, SOP or agent file (`sopc plan` shows which agents it reaches) and deploy, or redeploy from git to undo it.
+- **tools: missing:** an SOP names a tool the live agent doesn't have, often a rename (`did you mean ...?`). Fix the name in the SOP, or add the tool on the platform.
 - **error:** the line names the cause, e.g. `VAPI_API_KEY is not set` or `not found on Vapi (HTTP 404)` for an agent deleted on the platform.
 
 `sopc verify --json` prints the same report as JSON, for tools that post it elsewhere. Every flag is in the [CLI reference](../../CLI.md#sopc-verify).

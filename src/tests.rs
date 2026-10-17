@@ -1452,3 +1452,66 @@ fn migrate_convert_leaves_a_current_folder_alone() {
     let old = read_files(&old_fixture("restaurants").join("sops")).unwrap();
     assert_eq!(migrate::convert(old).unwrap(), files);
 }
+
+// --- verify: tools -------------------------------------------------------------------------------
+
+mod verify_tools {
+    use crate::verify::*;
+    use serde_json::json;
+    use std::collections::BTreeSet;
+
+    fn names(live: &LiveTools) -> Vec<&str> {
+        live.names.iter().map(String::as_str).collect()
+    }
+
+    #[test]
+    fn suggests_near_misses_only() {
+        let live: BTreeSet<String> = ["lookup_allergens", "LookupMenu", "end_call"].map(String::from).into();
+        assert_eq!(suggest("lookup_alergens", &live).as_deref(), Some("lookup_allergens"));
+        assert_eq!(suggest("lookup-menu", &live).as_deref(), Some("LookupMenu"));
+        assert_eq!(suggest("place_order", &live), None);
+    }
+
+    #[test]
+    fn elevenlabs_tools_skip_ids_already_inline() {
+        let agent = json!({"conversation_config": {"agent": {"prompt": {
+            "tools": [{"type": "webhook", "name": "a", "id": "t_a"}, {"type": "system", "name": "end_call"}],
+            "tool_ids": ["t_a", "t_b", ""],
+            "built_in_tools": {"transfer_to_number": {"type": "system"}, "skip_turn": null},
+        }}}});
+        let live = elevenlabs_tools(&agent);
+        assert_eq!(names(&live), ["a", "end_call", "transfer_to_number"]);
+        assert_eq!(live.ids, BTreeSet::from(["t_b".to_string()]));
+        assert_eq!(live.opaque, None);
+        let mcp = json!({"conversation_config": {"agent": {"prompt": {"mcp_server_ids": ["m1"]}}}});
+        assert!(elevenlabs_tools(&mcp).opaque.is_some());
+    }
+
+    #[test]
+    fn vapi_tools_use_the_names_the_model_sees() {
+        let assistant = json!({"endCallFunctionEnabled": true, "model": {
+            "tools": [{"type": "function", "function": {"name": "f"}}, {"type": "transferCall"},
+                      {"type": "transferCall", "function": {"name": "transfer_to_billing"}}],
+            "toolIds": ["t1"],
+        }});
+        let live = vapi_tools(&assistant);
+        assert_eq!(names(&live), ["endCall", "f", "transferCall", "transfer_to_billing"]);
+        assert_eq!(live.ids, BTreeSet::from(["t1".to_string()]));
+    }
+
+    #[test]
+    fn retell_flow_tools_note_shared_tools() {
+        let flow = json!({"tools": [{"name": "a", "tool_id": "x"}],
+                          "nodes": [{"type": "function", "tool_id": "s1", "tool_type": "shared"}]});
+        let live = retell_flow_tools(&flow);
+        assert_eq!(names(&live), ["a"]);
+        assert!(live.opaque.is_some());
+    }
+
+    #[test]
+    fn tools_arent_checked_without_a_platform_list() {
+        let refs = vec![ToolRef { name: "a".into(), required: true }];
+        let tools = compare_tools(refs, ToolList::NotChecked("custom LLM".into()));
+        assert!(!tools.checked && tools.missing.is_empty() && tools.error.is_none());
+    }
+}

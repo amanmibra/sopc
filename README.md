@@ -171,7 +171,7 @@ sopc plan         # Show which agents your changes affect, with prompt diffs
 sopc affected     # List the agents your changes affect (for CI)
 sopc agents       # List every agent with its platform id and SOPs
 sopc migrate      # Convert a folder from sopc v0.0.8 or earlier (shows the plan; --yes writes)
-sopc verify       # Check live prompts on ElevenLabs, Vapi and Retell match the build
+sopc verify       # Check live prompts and tools on ElevenLabs, Vapi and Retell match the build
 ```
 
 Every command and flag is in the [CLI reference](CLI.md), and `sopc <command> --help` shows examples.

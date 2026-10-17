@@ -249,10 +249,10 @@ enum Command {
         #[arg(long)]
         originals: PathBuf,
     },
-    /// Compare each agent's live prompt on its platform with the compiled one (catches dashboard hotfixes)
+    /// Compare each agent's live prompt and tools on its platform with the compiled ones (catches dashboard hotfixes)
     #[command(
         after_help = docs!("verify"),
-        after_long_help = examples!("verify", "  sopc verify                  Every agent; exit 1 if a live prompt drifted
+        after_long_help = examples!("verify", "  sopc verify                  Every agent; exit 1 if a live prompt drifted or lacks a tool its SOPs name
   sopc verify tonys-pizza      Only these agents (sopc ids or platform ids)
   sopc verify --json           Machine-readable report (for CI)
 
