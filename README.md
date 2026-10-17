@@ -94,7 +94,7 @@ const instructions = readFileSync(`sops/build/${agentId}.prompt.md`, "utf8");
 
 See the [LiveKit example](examples/livekit-restaurant) for a complete agent.
 
-**Prefer a UI and a database to files in git?** [sopserve](https://github.com/amanmibra/sopserve) runs the same compiler behind forms: compose agents from blocks, review the diff, publish a release, and have each agent fetch its prompt when a call starts.
+**Prefer a UI and a database to files in git?** [sopops](https://github.com/amanmibra/sopops) runs the same compiler behind forms: compose agents from blocks, review the diff, publish a release, and have each agent fetch its prompt when a call starts.
 
 ## How it works
 
