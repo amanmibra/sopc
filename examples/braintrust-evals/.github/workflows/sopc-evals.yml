@@ -28,7 +28,7 @@ jobs:
 
       - name: Install sopc
         run: |
-          curl -fsSL https://raw.githubusercontent.com/amanmibra/sopc/main/install.sh | SOPC_REF=v0.0.11 sh
+          curl -fsSL https://raw.githubusercontent.com/amanmibra/sopc/main/install.sh | SOPC_REF=v0.0.12 sh
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
       - name: Run evals for the agents this PR changes
