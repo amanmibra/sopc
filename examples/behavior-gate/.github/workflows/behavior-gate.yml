@@ -28,7 +28,7 @@ on:
 
 env:
   SOPC_ROOT: "" # your sopc folder; blank = sops/ (or the repo root if sopc.yaml is there)
-  SOPC_VERSION: v0.0.12 # a sopc release tag
+  SOPC_VERSION: v0.0.13 # a sopc release tag
 
 jobs:
   detect:
