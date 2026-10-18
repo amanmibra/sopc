@@ -2151,3 +2151,69 @@ fn overlap_and_compare_scale_to_100_agents() {
         assert!(elapsed.as_secs() < 5);
     }
 }
+
+/// How `compare` classifies one original sentence against one compiled sentence.
+fn compare_one(original: &str, compiled: &str) -> &'static str {
+    let originals = prompts_of(&[("a", original)]);
+    let compiled: BTreeMap<&str, &str> = [("a", compiled)].into_iter().collect();
+    let r = &crate::analyze::compare_prompts(&compiled, &originals, 0.9)[0];
+    assert_eq!(r.total, 1);
+    match (r.missing.len(), r.changed.len(), r.reworded.len()) {
+        (0, 0, 0) => "kept",
+        (0, 1, 0) => "changed",
+        (1, 0, 0) => "lost",
+        _ => "reworded",
+    }
+}
+
+#[test]
+fn compare_fails_a_changed_rule_word_however_alike() {
+    for (original, compiled, want) in [
+        // Rule words: changed, though at least 90% alike.
+        (
+            "Never upsell more than once per call to any guest.",
+            "Never upsell more than thrice per call to any guest.",
+            "changed",
+        ),
+        (
+            "Guests must show a photo ID before ordering wine or beer at the table tonight.",
+            "Guests may show a photo ID before ordering wine or beer at the table tonight.",
+            "changed",
+        ),
+        (
+            "Hold every pickup order at the front counter for up to 30 minutes after the guest calls.",
+            "Hold every pickup order at the front counter for up to 20 minutes after the guest calls.",
+            "changed",
+        ),
+        (
+            "Never place the order before the allergens are confirmed with the guest on the call.",
+            "Place the order before the allergens are confirmed with the guest on the call.",
+            "changed",
+        ),
+        // Values: as before. A long sentence with a different time is still kept; a short one with a
+        // different price is changed because it's less than 90% alike, not because of the value.
+        (
+            "The kitchen closes at 10pm on weekdays and weekends, so take the last orders a little before that.",
+            "The kitchen closes at 11pm on weekdays and weekends, so take the last orders a little before that.",
+            "kept",
+        ),
+        (
+            "A large margherita pizza costs $12.99 before tax.",
+            "A large margherita pizza costs $13.49 before tax.",
+            "changed",
+        ),
+        (
+            "Never upsell more than once per call to any guest.",
+            "Never upsell more than once per call to any guest.",
+            "kept",
+        ),
+    ] {
+        assert_eq!(compare_one(original, compiled), want, "{original} -> {compiled}");
+    }
+    let originals = prompts_of(&[("a", "Never upsell more than once per call to any guest.")]);
+    let compiled: BTreeMap<&str, &str> =
+        [("a", "Never upsell more than thrice per call to any guest.")].into_iter().collect();
+    let r = &crate::analyze::compare_prompts(&compiled, &originals, 0.9)[0];
+    assert!(!r.ok());
+    assert_eq!(r.changed[0].1, "Never upsell more than thrice per call to any guest.");
+}

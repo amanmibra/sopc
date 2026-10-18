@@ -928,6 +928,21 @@ impl Comparison {
     }
 }
 
+/// What `Pool::lookup` found for a unit.
+enum Lookup<'a> {
+    Found,
+    /// A sentence alike enough, but with a rule word changed: a count or limit, a negation or a modal.
+    RuleChanged(&'a String),
+    NotFound,
+}
+
+/// Whether two alike sentences differ in a word that changes what a rule says (`changes_rule`),
+/// on either side: "once" vs "thrice", "must" vs "may", a dropped "never".
+fn rule_word_differs(a: &str, b: &str) -> bool {
+    differing_ranges(a, b).iter().any(|r| changes_rule(b, r))
+        || differing_ranges(b, a).iter().any(|r| changes_rule(a, r))
+}
+
 /// Sentences to look units up in, prepared once: their norms, and word ids for `ratio`.
 struct Pool<'a> {
     units: &'a [String],
@@ -950,17 +965,32 @@ impl<'a> Pool<'a> {
         }
     }
 
-    /// Whether a sentence of the pool is the unit, contains it, or is at least `threshold` alike.
-    fn found(&self, unit: &str, word_ids: &mut WordIds, threshold: f64) -> bool {
+    /// Whether a sentence of the pool is the unit, contains it, or is at least `threshold` alike
+    /// without a rule word changed. Otherwise, the first sentence that is that alike but changes a
+    /// rule word (`RuleChanged`), if any.
+    fn lookup(&self, unit: &str, word_ids: &mut WordIds, threshold: f64) -> Lookup<'a> {
         let n = norm(unit);
         if self.exact.contains(&n) {
-            return true;
+            return Lookup::Found;
         }
         let (ids, sorted_ids) = (word_ids.of(unit), sorted(&word_ids.of(unit)));
-        (0..self.units.len()).any(|i| {
-            self.norms[i].contains(&n)
-                || (ratio_can_reach(&sorted_ids, &self.sorted[i], threshold) && ratio(&ids, &self.ids[i]) >= threshold)
-        })
+        let mut rule_changed = None;
+        for i in 0..self.units.len() {
+            if self.norms[i].contains(&n) {
+                return Lookup::Found;
+            }
+            if ratio_can_reach(&sorted_ids, &self.sorted[i], threshold) && ratio(&ids, &self.ids[i]) >= threshold {
+                if !rule_word_differs(unit, &self.units[i]) {
+                    return Lookup::Found;
+                }
+                rule_changed = rule_changed.or(Some(&self.units[i]));
+            }
+        }
+        rule_changed.map_or(Lookup::NotFound, Lookup::RuleChanged)
+    }
+
+    fn found(&self, unit: &str, word_ids: &mut WordIds, threshold: f64) -> bool {
+        matches!(self.lookup(unit, word_ids, threshold), Lookup::Found)
     }
 
     /// The most alike sentence (the first of equals), and how alike.
@@ -1016,8 +1046,13 @@ pub fn compare_prompts(
             (Pool::new(&rendered, &mut word_ids), Pool::new(&original_units, &mut word_ids));
         let mut c = Comparison { agent: agent.clone(), total: original_units.len(), ..Comparison::default() };
         for u in &original_units {
-            if rendered_pool.found(u, &mut word_ids, threshold) {
-                continue;
+            match rendered_pool.lookup(u, &mut word_ids, threshold) {
+                Lookup::Found => continue,
+                Lookup::RuleChanged(p) => {
+                    c.changed.push((u.clone(), p.clone()));
+                    continue;
+                }
+                Lookup::NotFound => {}
             }
             let closest = rendered_pool.closest(u, &mut word_ids);
             if let Some(parts) = split_across(u, &rendered) {

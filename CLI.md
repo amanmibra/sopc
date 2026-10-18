@@ -486,7 +486,9 @@ sopc compare --originals - --json < originals.json
 | `--originals DIR\|FILE\|-` | The original prompts: a folder of `<agent-id>.md` or `.txt` files, a JSON file holding an object of agent id → prompt text, or `-` to read that JSON from stdin (required) |
 | `--json` | Machine-readable output (below). The exit code is the same |
 
-Each original sentence is **kept** (found in the compiled prompt, or **reworded**: its words spread over several compiled sentences), **changed** (a compiled sentence at least half alike differs in some words) or **lost**. Compiled sentences with no counterpart in the original are **added** (information only; sopc's own tool lines are left out).
+Each original sentence is **kept** (found in the compiled prompt, at least 90% alike, or **reworded**: its words spread over several compiled sentences), **changed** (a compiled sentence at least half alike differs in some words) or **lost**.
+
+**A changed rule word is always a change.** When the compiled sentence differs in a rule word, it is **changed** and compare fails, however alike the two are: a count or limit (`once` vs `thrice`, `up to 30 minutes` vs `up to 20 minutes`), a negation (a dropped `never`) or a modal (`must` vs `may`). These are the rule words of [`overlap`](#sopc-overlap). Other differences, such as values (`10pm` vs `11pm`, `$12.99` vs `$13.49`), are judged by how alike the sentences are, as before. Compiled sentences with no counterpart in the original are **added** (information only; sopc's own tool lines are left out).
 
 With `--json`, the output is `{"summary": {"ok", "agents", "failed"}, "agents": [...], "no_original": [...]}`. `failed` counts agents with a lost or changed sentence; `no_original` lists compiled agents no original was given for. Each agent is:
 
