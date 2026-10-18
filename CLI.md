@@ -16,7 +16,7 @@ Installs one `sopc` binary into `~/.local/bin` (macOS, Linux and Windows; amd64 
 
 | Variable | Effect |
 |---|---|
-| `SOPC_REF=v0.0.15` | Install a specific release (default: the latest) |
+| `SOPC_REF=v0.0.16` | Install a specific release (default: the latest) |
 | `SOPC_INSTALL_DIR=DIR` | Install somewhere other than `~/.local/bin` |
 
 From source, with Rust: `cargo install --git https://github.com/amanmibra/sopc`.
