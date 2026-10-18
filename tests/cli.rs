@@ -719,6 +719,14 @@ fn overlap_json_matches_golden_from_a_folder_a_file_or_stdin() {
     std::fs::write(&file, originals_json()).unwrap();
     assert_eq!(run(0, &["overlap", file.to_str().unwrap(), "--json"]).stdout, out.stdout);
     assert_eq!(run_with_stdin(0, &["overlap", "-", "--json"], &originals_json()).stdout, out.stdout);
+    // The order agents are given in changes nothing, ids included.
+    let json: serde_json::Map<String, serde_json::Value> = serde_json::from_str(&originals_json()).unwrap();
+    for reverse in [false, true] {
+        let mut pairs: Vec<_> = json.clone().into_iter().collect();
+        pairs.sort_by(|a, b| if reverse { b.0.cmp(&a.0) } else { a.0.cmp(&b.0) });
+        let input = serde_json::Value::Object(pairs.into_iter().collect()).to_string();
+        assert_eq!(run_with_stdin(0, &["overlap", "-", "--json"], &input).stdout, out.stdout, "reverse: {reverse}");
+    }
 }
 
 #[test]

@@ -6,6 +6,7 @@
   ],
   "shared": [
     {
+      "id": "c3ff18f31b0b",
       "text": "You take orders, answer questions about the menu and hours, and hand off to staff when needed.",
       "agents": [
         "luigis-trattoria",
@@ -34,6 +35,7 @@
       ]
     },
     {
+      "id": "407ac29a8c0b",
       "text": "Speak warmly and briefly.",
       "agents": [
         "luigis-trattoria",
@@ -62,6 +64,7 @@
       ]
     },
     {
+      "id": "a5ef37771229",
       "text": "Ask one question at a time.",
       "agents": [
         "luigis-trattoria",
@@ -90,6 +93,7 @@
       ]
     },
     {
+      "id": "644c4aed9403",
       "text": "Before hanging up, repeat the order total and the pickup or delivery time.",
       "agents": [
         "luigis-trattoria",
@@ -120,6 +124,7 @@
   ],
   "near_copies": [
     {
+      "id": "73540e3901e7",
       "kind": "value",
       "agents_by_variant": {
         "You are the phone host for Luigi's Trattoria.": [
@@ -138,6 +143,7 @@
         "tonys-pizza": "Tony's Pizza"
       },
       "suggested_variable": "phone_host",
+      "variable_id": "a616df477cd4",
       "occurrences": [
         {
           "agent": "luigis-trattoria",
@@ -181,6 +187,7 @@
       ]
     },
     {
+      "id": "b4d938405b24",
       "kind": "rule_word",
       "agents_by_variant": {
         "Never upsell more than twice per call.": [
@@ -197,6 +204,7 @@
         "tonys-pizza": "once"
       },
       "suggested_variable": null,
+      "variable_id": null,
       "occurrences": [
         {
           "agent": "luigis-trattoria",
@@ -244,5 +252,57 @@
     "luigis-trattoria": 2,
     "sakura-sushi": 5,
     "tonys-pizza": 10
-  }
+  },
+  "variables": [
+    {
+      "id": "a616df477cd4",
+      "suggested_name": "phone_host",
+      "values": {
+        "luigis-trattoria": "Luigi's Trattoria",
+        "sakura-sushi": "Sakura Sushi",
+        "tonys-pizza": "Tony's Pizza"
+      },
+      "occurrences": [
+        "73540e3901e7"
+      ]
+    }
+  ],
+  "missing": [],
+  "unique": [
+    {
+      "agent": "luigis-trattoria",
+      "spans": [
+        {
+          "start": 236,
+          "end": 337,
+          "text": "Luigi's is a sit-down Italian restaurant in Queens. Takeout and reservations, no delivery on Mondays."
+        }
+      ]
+    },
+    {
+      "agent": "sakura-sushi",
+      "spans": [
+        {
+          "start": 230,
+          "end": 488,
+          "text": "Sakura is an omakase and sushi counter in Manhattan. Reservations strongly recommended. No delivery.\n\nReservations: ask for party size, date and time. Check availability. Confirm the booking details and the name on the reservation. Never double-book a table."
+        }
+      ]
+    },
+    {
+      "agent": "tonys-pizza",
+      "spans": [
+        {
+          "start": 137,
+          "end": 251,
+          "text": "Pizzas come in 12\" and 16\". Half-and-half toppings are allowed. Gluten-free crust is prepared in a shared kitchen."
+        },
+        {
+          "start": 346,
+          "end": 864,
+          "text": "Tony's is a wood-fired pizza shop in Brooklyn. Pickup only after 10pm. Cash and card.\n\nALLERGIES: If someone mentions a food allergy or dietary restriction, ask if anyone in the order has a food allergy, name the specific allergen back to the customer, and check each item they ordered against tonys.com/allergens using lookup_allergens.\n- Never say an item is \"allergen-free\" or \"safe\"\n- Never place the order before allergens are confirmed\n- If they mention anaphylaxis or an EpiPen, transfer to the manager on duty."
+        }
+      ]
+    }
+  ]
 }

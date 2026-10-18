@@ -59,7 +59,7 @@ The skill installs the `sopc` CLI if it's missing, finds your existing prompts (
 | Plan | you | Approve a one-screen plan: which instructions, SOPs and groups, how to handle drift |
 | Build | agent | Writes the files, keeping the original wording |
 | Verify | `sopc compare` | Fails if any original sentence is missing or changed; the agent repeats until it passes |
-| Review | `sopc lint` | Flags duplicates and conflicts (10pm vs 11pm, "always X" vs "never X") for you to decide |
+| Review | `sopc lint` | Flags duplicates and conflicts ("once" vs "twice" per call, "always X" vs "never X") for you to decide |
 | Commit | you | Approve a one-screen summary before anything is committed |
 
 </details>

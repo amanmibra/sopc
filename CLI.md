@@ -97,7 +97,9 @@ sopc lint --strict   # exit 1 if there are any findings (for CI)
 | `--json` | Machine-readable output |
 | `--strict` | Exit 1 if there are any findings, of any kind |
 
-Each finding has a code: `numeric_conflict` (same sentence, different numbers; `once`, `twice` and `one` to `ten` count as numbers), `negation_conflict` ("always X" vs "never X"), `duplicate_text`, `near_duplicate` and `unused_variable`.
+Each finding has a code: `numeric_conflict` (same sentence, different counts or limits), `negation_conflict` ("always X" vs "never X"), `duplicate_text`, `near_duplicate` and `unused_variable`.
+
+Counts and limits are what [`overlap`](#sopc-overlap) calls rule words: `once`, `twice` and `one` to `ten`, and whole numbers used as a count, limit or duration (`up to 3`, `2 times`, `within 5 minutes`). Times, prices, phone numbers, addresses and ids are values, not counts: "Pickup only after 10pm." and "Pickup only after 11pm." are not a `numeric_conflict`.
 
 **`--strict` fails on every kind, not only the conflicts.** Each one is cheap to fix and worth fixing before a merge: a duplicate is text to delete, an unused variable is a value to remove, and a near-duplicate is often a contradiction lint can't classify, because the word that changed isn't a number or a negation ("before" vs "after"). Lint has no way to silence a single finding, so when two sentences really should both stay, reword one.
 
@@ -297,7 +299,7 @@ The new file is written before the old one is deleted. Comments at the top of a 
 
 ## sopc overlap
 
-For importing existing prompts: shows the text that several prompts share, and near-copies: the same sentence with different words in some prompts. A near-copy whose differing words are values (a name, a place) is a placeholder candidate; one whose differing words change a rule is drift.
+For importing existing prompts: shows the text that several prompts share, and near-copies: the same sentence with different words in some prompts. A near-copy whose differing words are values (a name, a place) is a placeholder candidate; one whose differing words change a rule is drift. With `--json` it also groups values into variables, and lists the text most prompts have but some lack and the text only one prompt has, for reviewing an import of many agents.
 
 ```sh
 sopc overlap prompts/
@@ -326,60 +328,145 @@ With `--json`, the output is one object:
 | Field | Value |
 |---|---|
 | `agents` | Agent ids, sorted |
-| `shared` | `[{"text", "agents", "occurrences"}]`: sentences found in more than one prompt (ignoring case and punctuation), in first-seen order. `text` is the first agent's copy |
-| `near_copies` | `[{"kind", "agents_by_variant", "differing_tokens", "suggested_variable", "occurrences"}]`. `agents_by_variant` maps each wording to the agents that use it; `differing_tokens` maps each agent to its differing words; `suggested_variable` is `null` for `rule_word` |
+| `shared` | `[{"id", "text", "agents", "occurrences"}]`: sentences found in more than one prompt (ignoring case and punctuation), in first-seen order. `text` is the first agent's copy |
+| `near_copies` | `[{"id", "kind", "agents_by_variant", "differing_tokens", "suggested_variable", "variable_id", "occurrences"}]`. `agents_by_variant` maps each wording to the agents that use it; `differing_tokens` maps each agent to its differing words; `suggested_variable` and `variable_id` (the `variables` entry it belongs to) are `null` for `rule_word` |
+| `variables` | `[{"id", "suggested_name", "values", "occurrences"}]`: the `value` near-copies grouped by value, largest first. Near-copies whose values are the same for every agent they share (one's agents may be a subset of the other's) are one variable, e.g. a restaurant's name in ten sentences. `values` maps each agent to its value (the text between the words every variant starts and ends with); `occurrences` lists the near-copy ids. Every `value` near-copy is in exactly one variable |
+| `missing` | `[{"id", "text", "present_in", "missing_in", "source"}]`: text that most prompts have (at least half, and at least two) but some don't. `missing_in` leaves out prompts that have a sentence at least 75% like it (they word it differently, a near-copy). `source` is `{"kind": "shared" or "near_copy", "id"}`, the group it comes from; for a near-copy, `text` is the most common wording. Most widely shared first |
+| `unique` | `[{"agent", "spans": [{"start", "end", "text"}]}]`, one entry per agent: the text no other prompt has in any wording. Consecutive such sentences are one span, which includes what's between them (headings, line breaks) |
 | `only_in_one` | Agent id → how many of its sentences no other prompt has |
+
+Every `id` is 12 hex characters, a hash of the group's kind and normalized text (for a variable, of its near-copies' ids). The same text gets the same id in every run, whatever the agents are called or the order they're given in, so a review tool can keep notes on a group across runs. A near-copy's id changes when its set of wordings does.
 
 Each occurrence is `{"agent", "start", "end", "text"}`: where the sentence is in that agent's prompt, so a UI can highlight it. `start` and `end` count characters (Unicode code points; for text outside the Basic Multilingual Plane, convert to UTF-16 units in JavaScript), with `end` exclusive, and `text` is exactly that slice. Near-copy occurrences add `differing: [{"start", "end", "text"}]`, the differing words, as offsets in the same prompt.
 
+For these three prompts:
+
+```text
+luigis-trattoria.md:
+  You are the phone host for Luigi's Trattoria.
+  Speak warmly and briefly.
+  Never upsell more than twice per call.
+  Luigi's is a sit-down Italian restaurant in Queens.
+  Thank you for calling Luigi's Trattoria, and have a lovely evening.
+
+sakura-sushi.md:
+  You are the phone host for Sakura Sushi.
+  Speak warmly and briefly.
+  Never upsell more than once per call.
+  Thank you for calling Sakura Sushi, and have a lovely evening.
+
+tonys-pizza.md:
+  You are the phone host for Tony's Pizza.
+  Never upsell more than once per call.
+  Thank you for calling Tony's Pizza, and have a lovely evening.
+```
+
+the output is:
+
 ```json
 {
-  "agents": ["luigis-trattoria", "sakura-sushi"],
+  "agents": ["luigis-trattoria", "sakura-sushi", "tonys-pizza"],
   "shared": [
     {
+      "id": "407ac29a8c0b",
       "text": "Speak warmly and briefly.",
       "agents": ["luigis-trattoria", "sakura-sushi"],
       "occurrences": [
-        {"agent": "luigis-trattoria", "start": 142, "end": 167, "text": "Speak warmly and briefly."},
-        {"agent": "sakura-sushi", "start": 137, "end": 162, "text": "Speak warmly and briefly."}
+        {"agent": "luigis-trattoria", "start": 46, "end": 71, "text": "Speak warmly and briefly."},
+        {"agent": "sakura-sushi", "start": 41, "end": 66, "text": "Speak warmly and briefly."}
       ]
     }
   ],
   "near_copies": [
     {
+      "id": "73540e3901e7",
       "kind": "value",
       "agents_by_variant": {
         "You are the phone host for Luigi's Trattoria.": ["luigis-trattoria"],
-        "You are the phone host for Sakura Sushi.": ["sakura-sushi"]
+        "You are the phone host for Sakura Sushi.": ["sakura-sushi"],
+        "You are the phone host for Tony's Pizza.": ["tonys-pizza"]
       },
-      "differing_tokens": {"luigis-trattoria": "Luigi's Trattoria", "sakura-sushi": "Sakura Sushi"},
+      "differing_tokens": {"luigis-trattoria": "Luigi's Trattoria", "sakura-sushi": "Sakura Sushi", "tonys-pizza": "Tony's Pizza"},
       "suggested_variable": "phone_host",
+      "variable_id": "2b4dc406a0e0",
       "occurrences": [
         {"agent": "luigis-trattoria", "start": 0, "end": 45, "text": "You are the phone host for Luigi's Trattoria.",
          "differing": [{"start": 27, "end": 44, "text": "Luigi's Trattoria"}]},
         {"agent": "sakura-sushi", "start": 0, "end": 40, "text": "You are the phone host for Sakura Sushi.",
-         "differing": [{"start": 27, "end": 39, "text": "Sakura Sushi"}]}
+         "differing": [{"start": 27, "end": 39, "text": "Sakura Sushi"}]},
+        {"agent": "tonys-pizza", "start": 0, "end": 40, "text": "You are the phone host for Tony's Pizza.",
+         "differing": [{"start": 27, "end": 39, "text": "Tony's Pizza"}]}
       ]
     },
     {
+      "id": "b4d938405b24",
       "kind": "rule_word",
       "agents_by_variant": {
         "Never upsell more than twice per call.": ["luigis-trattoria"],
-        "Never upsell more than once per call.": ["sakura-sushi"]
+        "Never upsell more than once per call.": ["sakura-sushi", "tonys-pizza"]
       },
-      "differing_tokens": {"luigis-trattoria": "twice", "sakura-sushi": "once"},
+      "differing_tokens": {"luigis-trattoria": "twice", "sakura-sushi": "once", "tonys-pizza": "once"},
       "suggested_variable": null,
+      "variable_id": null,
       "occurrences": [
-        {"agent": "luigis-trattoria", "start": 196, "end": 234, "text": "Never upsell more than twice per call.",
-         "differing": [{"start": 219, "end": 224, "text": "twice"}]},
-        {"agent": "sakura-sushi", "start": 191, "end": 228, "text": "Never upsell more than once per call.",
-         "differing": [{"start": 214, "end": 218, "text": "once"}]}
+        {"agent": "luigis-trattoria", "start": 72, "end": 110, "text": "Never upsell more than twice per call.",
+         "differing": [{"start": 95, "end": 100, "text": "twice"}]},
+        {"agent": "sakura-sushi", "start": 67, "end": 104, "text": "Never upsell more than once per call.",
+         "differing": [{"start": 90, "end": 94, "text": "once"}]},
+        {"agent": "tonys-pizza", "start": 41, "end": 78, "text": "Never upsell more than once per call.",
+         "differing": [{"start": 64, "end": 68, "text": "once"}]}
+      ]
+    },
+    {
+      "id": "2962277e36e4",
+      "kind": "value",
+      "agents_by_variant": {
+        "Thank you for calling Luigi's Trattoria, and have a lovely evening.": ["luigis-trattoria"],
+        "Thank you for calling Sakura Sushi, and have a lovely evening.": ["sakura-sushi"],
+        "Thank you for calling Tony's Pizza, and have a lovely evening.": ["tonys-pizza"]
+      },
+      "differing_tokens": {"luigis-trattoria": "Luigi's Trattoria", "sakura-sushi": "Sakura Sushi", "tonys-pizza": "Tony's Pizza"},
+      "suggested_variable": "thank_calling",
+      "variable_id": "2b4dc406a0e0",
+      "occurrences": [
+        {"agent": "luigis-trattoria", "start": 163, "end": 230, "text": "Thank you for calling Luigi's Trattoria, and have a lovely evening.",
+         "differing": [{"start": 185, "end": 202, "text": "Luigi's Trattoria"}]},
+        {"agent": "sakura-sushi", "start": 105, "end": 167, "text": "Thank you for calling Sakura Sushi, and have a lovely evening.",
+         "differing": [{"start": 127, "end": 139, "text": "Sakura Sushi"}]},
+        {"agent": "tonys-pizza", "start": 79, "end": 141, "text": "Thank you for calling Tony's Pizza, and have a lovely evening.",
+         "differing": [{"start": 101, "end": 113, "text": "Tony's Pizza"}]}
       ]
     }
   ],
-  "only_in_one": {"luigis-trattoria": 2, "sakura-sushi": 5}
+  "only_in_one": {"luigis-trattoria": 1, "sakura-sushi": 0, "tonys-pizza": 0},
+  "variables": [
+    {
+      "id": "2b4dc406a0e0",
+      "suggested_name": "phone_host",
+      "values": {"luigis-trattoria": "Luigi's Trattoria", "sakura-sushi": "Sakura Sushi", "tonys-pizza": "Tony's Pizza"},
+      "occurrences": ["73540e3901e7", "2962277e36e4"]
+    }
+  ],
+  "missing": [
+    {
+      "id": "16db2ec35dbd",
+      "text": "Speak warmly and briefly.",
+      "present_in": ["luigis-trattoria", "sakura-sushi"],
+      "missing_in": ["tonys-pizza"],
+      "source": {"kind": "shared", "id": "407ac29a8c0b"}
+    }
+  ],
+  "unique": [
+    {"agent": "luigis-trattoria", "spans": [{"start": 111, "end": 162, "text": "Luigi's is a sit-down Italian restaurant in Queens."}]},
+    {"agent": "sakura-sushi", "spans": []},
+    {"agent": "tonys-pizza", "spans": []}
+  ]
 }
 ```
+
+A `variables` entry is a placeholder to create once (`{{phone_host}}`, set per agent) and use in every sentence its `occurrences` point at. `missing` is often a rule some agents never got; `unique` is each agent's own text, a candidate for its `context` or an agent-specific instruction.
+
+`overlap` finds near-copies through an index rather than by comparing every pair of sentences: 100 prompts of about 3,000 words each take well under a second.
 
 `overlap` exits 0, unless the prompts can't be read (`no_prompts`: none found; `bad_prompts`: the JSON isn't an object of strings).
 

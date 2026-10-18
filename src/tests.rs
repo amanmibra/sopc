@@ -1030,14 +1030,14 @@ fn check_finds_mechanical_conflicts() {
     r.edit(
         "agents/tonys-pizza.yaml",
         "Pickup only after 10pm. Cash and card.",
-        "Pickup only after 11pm. Cash and card. Speak warmly and briefly. Always confirm the delivery address.",
+        "Pickup only after 11pm. Hold pickup orders for up to 30 minutes. Cash and card. Speak warmly and briefly. Always confirm the delivery address.",
     );
     r.edit(
         "agents/tonys-pizza.yaml",
         "  menu_allergen_link: tonys.com/allergens",
         "  menu_allergen_link: tonys.com/allergens\n  old_phone: 555-0100",
     );
-    r.append("instructions/pizza-context.md", " Pickup only after 10pm.\n");
+    r.append("instructions/pizza-context.md", " Pickup only after 10pm. Hold pickup orders for up to 20 minutes.\n");
     r.edit(
         "procedures/delivery-handling.yaml",
         "procedureSteps:",
@@ -1053,10 +1053,11 @@ fn check_finds_mechanical_conflicts() {
     assert_eq!(
         by_code["numeric_conflict"].sources,
         [
-            pair("agent `tonys-pizza`", "Pickup only after 11pm."),
-            pair("instruction `pizza-context`", "Pickup only after 10pm.")
+            pair("agent `tonys-pizza`", "Hold pickup orders for up to 30 minutes."),
+            pair("instruction `pizza-context`", "Hold pickup orders for up to 20 minutes.")
         ]
     );
+    assert_eq!(findings.iter().filter(|f| f.code == "numeric_conflict").count(), 1, "10pm vs 11pm is a value");
     assert_eq!(by_code["negation_conflict"].agents, ["tonys-pizza"]);
     assert_eq!(by_code["duplicate_text"].sources[0].0, "agent `tonys-pizza`");
     assert_eq!(by_code["duplicate_text"].sources[1].0, "instruction `brand-voice`");
@@ -1081,13 +1082,39 @@ fn check_finds_a_number_conflict_inside_a_longer_sentence() {
     r.edit(
         "agents/tonys-pizza.yaml",
         "Pickup only after 10pm. Cash and card.",
-        "Pickup and delivery until 11pm. Delivery until 10pm on Sundays. Cash and card.",
+        "Hold pickup and delivery orders for up to 30 minutes. Hold orders for up to 20 minutes on Sundays. Cash and card.",
     );
     assert!(lint(&ws(r.root())).is_empty(), "different statements: no conflict");
-    r.edit("agents/tonys-pizza.yaml", "Delivery until 10pm on Sundays.", "Delivery until 10pm.");
+    r.edit(
+        "agents/tonys-pizza.yaml",
+        "Hold orders for up to 20 minutes on Sundays.",
+        "Hold orders for up to 20 minutes.",
+    );
     let findings = lint(&ws(r.root()));
     assert_eq!(findings.len(), 1);
     assert_eq!(findings[0].code, "numeric_conflict");
+}
+
+#[test]
+fn lint_treats_times_prices_and_phone_numbers_as_values() {
+    for (a, b) in [
+        ("Pickup only after 10pm.", "Pickup only after 11pm."),
+        ("The kitchen closes at 10:30pm on weekdays.", "The kitchen closes at 11pm on weekdays."),
+        ("A large margherita pizza costs $12.99 before tax.", "A large margherita pizza costs $13.49 before tax."),
+        ("Our catering phone number is 555-0142 today.", "Our catering phone number is 555-0199 today."),
+        ("Your order number starts with A1234 on the receipt.", "Your order number starts with B5678 on the receipt."),
+    ] {
+        assert_ne!(crate::analyze::fast_conflict(a, b), Some("numeric_conflict"), "{a} / {b}");
+        assert_eq!(crate::analyze::fast_conflict(a, b), crate::analyze::conflict(a, b), "{a} / {b}");
+    }
+    for (a, b) in [
+        ("Never upsell more than once per call.", "Never upsell more than twice per call."),
+        ("Offer dessert up to 2 times per call.", "Offer dessert up to 3 times per call."),
+        ("Confirm the order within 5 minutes.", "Confirm the order within 10 minutes."),
+    ] {
+        assert_eq!(crate::analyze::fast_conflict(a, b), Some("numeric_conflict"), "{a} / {b}");
+        assert_eq!(crate::analyze::conflict(a, b), Some("numeric_conflict"), "{a} / {b}");
+    }
 }
 
 /// Deterministic sentences: random words, some numbers, and near-copies of earlier ones with a
@@ -1664,5 +1691,463 @@ mod verify_tools {
         let refs = vec![ToolRef { name: "a".into(), required: true }];
         let tools = compare_tools(refs, ToolList::NotChecked("custom LLM".into()));
         assert!(!tools.checked && tools.missing.is_empty() && tools.error.is_none());
+    }
+}
+
+// --- scale ----------------------------------------------------------------------------------------
+
+/// A deterministic pseudo-random number source for generated test data.
+struct Lcg(u64);
+
+impl Lcg {
+    fn next(&mut self, n: usize) -> usize {
+        self.0 = self.0.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        ((self.0 >> 33) as usize) % n
+    }
+    fn sentence(&mut self, words: &[&str], len: usize) -> Vec<String> {
+        (0..len).map(|_| words[self.next(words.len())].to_string()).collect()
+    }
+}
+
+/// Fictional restaurant agents for scale tests, one per restaurant: `sentences` shared template
+/// sentences (about 15 words each) in sections, with each restaurant's name (in about one sentence
+/// in twenty), phone number, closing time and street number filled in. Some agents drift on a rule
+/// word, some leave out a few shared sentences, and every `own_every`th agent has a section of
+/// `own` sentences of its own.
+pub fn restaurant_agents(n: usize, sentences: usize, own_every: usize, own: usize) -> BTreeMap<String, String> {
+    const VOCAB: &[&str] = &[
+        "guest",
+        "order",
+        "table",
+        "menu",
+        "item",
+        "delivery",
+        "address",
+        "card",
+        "refund",
+        "allergy",
+        "booking",
+        "party",
+        "manager",
+        "staff",
+        "kitchen",
+        "drink",
+        "coupon",
+        "receipt",
+        "pickup",
+        "confirm",
+        "check",
+        "ask",
+        "tell",
+        "offer",
+        "repeat",
+        "transfer",
+        "dessert",
+        "special",
+        "wine",
+        "patio",
+        "reservation",
+        "waitlist",
+        "gluten",
+        "vegan",
+        "spicy",
+        "sauce",
+        "side",
+        "salad",
+        "soup",
+        "bread",
+        "parking",
+        "entrance",
+        "highchair",
+        "birthday",
+        "cake",
+        "candle",
+        "napkin",
+        "takeout",
+        "container",
+        "driver",
+        "tip",
+        "total",
+        "tax",
+        "balance",
+        "voucher",
+        "points",
+        "loyalty",
+        "member",
+        "politely",
+        "clearly",
+        "quickly",
+        "gently",
+        "warmly",
+        "briefly",
+        "carefully",
+        "always",
+        "kindly",
+        "before",
+        "after",
+        "during",
+        "while",
+        "the",
+        "a",
+        "their",
+        "each",
+        "every",
+        "any",
+        "and",
+        "then",
+        "or",
+        "to",
+        "for",
+        "with",
+        "about",
+        "from",
+        "into",
+        "spell",
+        "write",
+        "note",
+        "share",
+        "explain",
+        "mention",
+        "suggest",
+        "recommend",
+        "hold",
+        "seat",
+        "wrap",
+        "pack",
+        "deliver",
+        "serve",
+        "pour",
+        "slice",
+        "grill",
+        "bake",
+        "chill",
+        "warm",
+        "fresh",
+        "hot",
+        "cold",
+        "small",
+        "large",
+        "extra",
+        "plain",
+        "crispy",
+        "creamy",
+        "sweet",
+        "sour",
+        "salty",
+        "fried",
+        "steamed",
+        "roasted",
+        "seasonal",
+        "daily",
+        "weekly",
+        "holiday",
+        "lunch",
+        "dinner",
+        "brunch",
+        "breakfast",
+        "evening",
+        "morning",
+        "weekend",
+        "counter",
+        "bar",
+        "booth",
+        "window",
+        "corner",
+        "upstairs",
+        "downstairs",
+        "outside",
+        "inside",
+        "line",
+        "queue",
+        "request",
+    ];
+    const FIRST: &[&str] =
+        &["Golden", "Blue", "Little", "Old Town", "Harbor", "Sunny", "Maple", "Copper", "Lucky", "Green Door"];
+    const SECOND: &[&str] = &[
+        "Trattoria",
+        "Sushi Bar",
+        "Diner",
+        "Grill",
+        "Bistro",
+        "Kitchen",
+        "Cantina",
+        "Noodle House",
+        "Bakery",
+        "Taqueria",
+    ];
+    let mut rng = Lcg(42);
+    let mut templates: Vec<String> = (0..sentences)
+        .map(|i| {
+            let len = 10 + rng.next(10);
+            let mut ws = rng.sentence(VOCAB, len);
+            if i % 20 == 7 {
+                let at = 2 + rng.next(ws.len() - 2);
+                ws.insert(at, "{name}".into());
+            }
+            let mut s = ws.join(" ");
+            s[..1].make_ascii_uppercase();
+            s + "."
+        })
+        .collect();
+    let fixed = [
+        "You are the phone host for {name}, a family restaurant in the neighborhood.",
+        "Thank you for calling {name}, how can I help you today?",
+        "Our phone number is {phone} for catering and large party orders.",
+        "The kitchen closes at {close} on weekdays and weekends alike.",
+        "Pickups are at {street} Mulberry Street, next to the corner bakery.",
+        "Never upsell more than once per call to any guest.",
+        "Guests must show ID before ordering wine or beer at the table.",
+    ];
+    for (i, s) in fixed.iter().enumerate() {
+        templates.insert(i * sentences / fixed.len(), s.to_string());
+    }
+    let mut out = BTreeMap::new();
+    for i in 0..n {
+        let name = format!("{} {}", FIRST[i % FIRST.len()], SECOND[(i / FIRST.len()) % SECOND.len()]);
+        let name = if i < FIRST.len() * SECOND.len() { name } else { format!("{name} {}", i / 100 + 1) };
+        let id = name.to_lowercase().replace(' ', "-");
+        let mut agent_rng = Lcg(1000 + i as u64);
+        let mut lines = vec![format!("# {name}")];
+        for (k, t) in templates.iter().enumerate() {
+            if k % 15 == 0 {
+                lines.push(format!("\n## Section {}", k / 15 + 1));
+            }
+            // A few shared sentences are left out by some agents.
+            if k % 10 == 5 && (i + k) % 7 == 0 {
+                continue;
+            }
+            let mut s = t
+                .replace("{name}", &name)
+                .replace("{phone}", &format!("555-{:04}", 100 + i))
+                .replace("{close}", ["9pm", "10pm", "11pm", "10:30pm"][i % 4])
+                .replace("{street}", &(10 + i * 3).to_string());
+            if i % 17 == 3 {
+                s = s.replace("more than once", "more than twice");
+            }
+            if i % 23 == 5 {
+                s = s.replace("must show", "may show");
+            }
+            lines.push(format!("- {s}"));
+            if i % own_every == 0 && k == templates.len() / 2 {
+                lines.push("\n## House specials".into());
+                for _ in 0..own {
+                    let len = 8 + agent_rng.next(8);
+                    let mut s = agent_rng.sentence(VOCAB, len).join(" ");
+                    s[..1].make_ascii_uppercase();
+                    lines.push(format!("- {s}."));
+                }
+            }
+        }
+        out.insert(id, lines.join("\n") + "\n");
+    }
+    out
+}
+
+fn prompts_of(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
+    pairs.iter().map(|(a, p)| (a.to_string(), p.to_string())).collect()
+}
+
+#[test]
+fn similar_pairs_match_comparing_every_pair() {
+    let sentences = generated_sentences(400);
+    for near in [0.5, 0.75, 0.9] {
+        let (fast, brute) = crate::analyze::similar_pairs_and_brute_force(&sentences, near);
+        assert_eq!(fast, brute, "near = {near}");
+        assert!(fast.iter().map(Vec::len).sum::<usize>() > 20, "near = {near}");
+    }
+}
+
+#[test]
+fn overlap_merges_a_value_used_in_several_sentences_into_one_variable() {
+    let prompts = prompts_of(&[
+        ("blue", "You are the host at Blue Bistro on Main Street.\nThank you for calling Blue Bistro, how can I help?\nOrders for Blue Bistro are ready in twenty minutes or less.\nCall 555-0101 for catering orders and parties."),
+        ("dina", "You are the host at Dina's Diner on Main Street.\nThank you for calling Dina's Diner, how can I help?\nOrders for Dina's Diner are ready in twenty minutes or less.\nCall 555-0102 for catering orders and parties."),
+        ("gold", "You are the host at Golden Grill on Main Street.\nThank you for calling Golden Grill, how can I help?\nCall 555-0103 for catering orders and parties."),
+    ]);
+    let json = overlap(&prompts, 0.75).to_json();
+    let variables = json["variables"].as_array().unwrap();
+    assert_eq!(variables.len(), 2, "{json:#}");
+    let name = &variables[0];
+    assert_eq!(name["suggested_name"], "host");
+    assert_eq!(
+        name["values"],
+        serde_json::json!({"blue": "Blue Bistro", "dina": "Dina's Diner", "gold": "Golden Grill"})
+    );
+    assert_eq!(name["occurrences"].as_array().unwrap().len(), 3, "the two-agent sentence is a consistent subset");
+    assert_eq!(variables[1]["values"]["gold"], "555-0103");
+    for nc in json["near_copies"].as_array().unwrap() {
+        let var = variables.iter().find(|v| v["occurrences"].as_array().unwrap().contains(&nc["id"])).unwrap();
+        assert_eq!(nc["variable_id"], var["id"]);
+    }
+    // A value that differs for one agent is a different variable.
+    let mut changed = prompts.clone();
+    changed.get_mut("dina").unwrap().push_str("\nDina's Place is open late on Fridays and Saturdays.");
+    changed.get_mut("blue").unwrap().push_str("\nBlue Bistro is open late on Fridays and Saturdays.");
+    let json = overlap(&changed, 0.75).to_json();
+    assert_eq!(json["variables"].as_array().unwrap().len(), 3, "{json:#}");
+}
+
+#[test]
+fn overlap_reports_text_only_one_prompt_has_as_spans() {
+    let prompts = prompts_of(&[
+        ("a", "Speak warmly and briefly.\nWe bake our bread fresh every morning. Ask about the sourdough loaf.\n\n## Hours\nAsk one question at a time.\nThe patio is closed in winter months."),
+        ("b", "Speak warmly and briefly.\nAsk one question at a time."),
+    ]);
+    let json = overlap(&prompts, 0.75).to_json();
+    let unique = json["unique"].as_array().unwrap();
+    assert_eq!(unique.len(), 2);
+    assert_eq!(unique[1], serde_json::json!({"agent": "b", "spans": []}));
+    let spans = unique[0]["spans"].as_array().unwrap();
+    let texts: Vec<&str> = spans.iter().map(|s| s["text"].as_str().unwrap()).collect();
+    assert_eq!(
+        texts,
+        [
+            "We bake our bread fresh every morning. Ask about the sourdough loaf.",
+            "The patio is closed in winter months."
+        ]
+    );
+    let chars: Vec<char> = prompts["a"].chars().collect();
+    for s in spans {
+        let (start, end) = (s["start"].as_u64().unwrap() as usize, s["end"].as_u64().unwrap() as usize);
+        assert_eq!(chars[start..end].iter().collect::<String>(), s["text"]);
+    }
+    assert_eq!(json["only_in_one"]["a"], 3);
+}
+
+#[test]
+fn overlap_reports_text_most_prompts_have_and_some_lack() {
+    let greet = "Always greet the guest by name at the door.";
+    let prompts = prompts_of(&[
+        (
+            "a",
+            &format!(
+                "Always greet the guest by name at the front gate.\n{greet}\nRepeat the order back before you hang up."
+            ),
+        ),
+        (
+            "b",
+            &format!(
+                "{greet}\nRepeat the order back before you hang up.\nOffer the dessert menu after the main course."
+            ),
+        ),
+        ("c", &format!("{greet}\nRepeat the order back before you hang up.")),
+        ("d", "Always greet the guest by name at the gate.\nThe patio is closed in winter months."),
+    ]);
+    let json = overlap(&prompts, 0.75).to_json();
+    let missing = json["missing"].as_array().unwrap();
+    assert_eq!(missing.len(), 1, "{json:#}");
+    assert_eq!(missing[0]["text"], "Repeat the order back before you hang up.");
+    assert_eq!(missing[0]["present_in"], serde_json::json!(["a", "b", "c"]));
+    assert_eq!(missing[0]["missing_in"], serde_json::json!(["d"]));
+    assert_eq!(missing[0]["source"]["kind"], "shared");
+    let source = json["shared"].as_array().unwrap().iter().find(|s| s["id"] == missing[0]["source"]["id"]).unwrap();
+    assert_eq!(source["text"], missing[0]["text"]);
+    // d words the greeting differently: a near-copy, not missing. One prompt of four isn't "most".
+    assert!(json["shared"].as_array().unwrap().iter().any(|s| s["text"] == greet));
+}
+
+#[test]
+fn overlap_ids_depend_on_text_not_on_agents() {
+    let json = overlap(&originals(), 0.75).to_json();
+    let ids = |json: &serde_json::Value, field: &str| -> Vec<String> {
+        json[field].as_array().unwrap().iter().map(|g| g["id"].as_str().unwrap().to_string()).collect()
+    };
+    let mut all: Vec<String> =
+        ["shared", "near_copies", "variables", "missing"].iter().flat_map(|f| ids(&json, f)).collect();
+    assert!(all.iter().all(|id| id.len() == 12 && id.chars().all(|c| c.is_ascii_hexdigit())), "{all:?}");
+    let count = all.len();
+    all.sort();
+    all.dedup();
+    assert_eq!(all.len(), count, "ids are unique");
+    // Renamed agents, and one more agent with nothing in common: the same groups keep their ids.
+    let mut renamed: BTreeMap<String, String> = originals().into_iter().map(|(a, p)| (format!("z-{a}"), p)).collect();
+    renamed.insert("a-other".into(), "Nothing here is like the others at all.".into());
+    let again = overlap(&renamed, 0.75).to_json();
+    for field in ["shared", "near_copies", "variables"] {
+        assert_eq!(ids(&again, field), ids(&json, field), "{field}");
+    }
+}
+
+#[test]
+fn overlap_handles_20_generated_agents() {
+    let agents = restaurant_agents(20, 100, 5, 8);
+    let t = std::time::Instant::now();
+    let json = overlap(&agents, 0.75).to_json();
+    assert!(t.elapsed().as_secs() < 20, "{:?}", t.elapsed());
+    // The restaurant's name is one variable, whose value for each agent names it.
+    let name = json["variables"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .max_by_key(|v| v["occurrences"].as_array().unwrap().len())
+        .unwrap();
+    assert!(name["occurrences"].as_array().unwrap().len() >= 6, "{name}");
+    for (agent, value) in name["values"].as_object().unwrap() {
+        assert_eq!(value.as_str().unwrap().to_lowercase().replace(' ', "-"), *agent);
+    }
+    let near = json["near_copies"].as_array().unwrap();
+    assert!(near.iter().any(|nc| nc["kind"] == "rule_word" && nc["differing_tokens"]["old-town-trattoria"] == "twice"));
+    // Every fifth agent has a section of its own; the others have nothing of their own.
+    let unique = json["unique"].as_array().unwrap();
+    let with_spans: Vec<&serde_json::Value> = unique.iter().filter(|u| u["spans"] != serde_json::json!([])).collect();
+    assert_eq!(with_spans.len(), 4);
+    for u in with_spans {
+        assert_eq!(u["spans"].as_array().unwrap().len(), 1, "{u}");
+        assert_eq!(json["only_in_one"][u["agent"].as_str().unwrap()], 8);
+    }
+    let missing = json["missing"].as_array().unwrap();
+    assert!(!missing.is_empty());
+    for m in missing {
+        assert_eq!(m["present_in"].as_array().unwrap().len() + m["missing_in"].as_array().unwrap().len(), 20);
+    }
+}
+
+#[test]
+fn restaurant_agents_are_about_the_requested_size() {
+    let agents = restaurant_agents(100, 200, 5, 8);
+    assert_eq!(agents.len(), 100);
+    let words: usize = agents.values().map(|p| crate::analyze::words(p).len()).sum();
+    assert!((2500..4000).contains(&(words / 100)), "{}", words / 100);
+}
+
+#[test]
+#[ignore = "timing; run with --release --ignored --nocapture"]
+fn overlap_and_compare_scale_to_100_agents() {
+    for (label, own_every, own) in [("mostly shared", 5, 8), ("60 sentences of its own each", 1, 60)] {
+        let agents = restaurant_agents(100, 200, own_every, own);
+        let words: usize = agents.values().map(|p| crate::analyze::words(p).len()).sum();
+        let t = std::time::Instant::now();
+        let json = overlap(&agents, 0.75).to_json();
+        let elapsed = t.elapsed();
+        println!(
+            "overlap, 100 agents, {label} ({} words each): {elapsed:?}; {} shared, {} near-copies, {} variables, {} missing",
+            words / 100,
+            json["shared"].as_array().unwrap().len(),
+            json["near_copies"].as_array().unwrap().len(),
+            json["variables"].as_array().unwrap().len(),
+            json["missing"].as_array().unwrap().len(),
+        );
+        assert!(elapsed.as_secs() < 5);
+        // Compiled prompts that lost a line, changed a rule and gained a line.
+        let compiled: BTreeMap<String, String> = agents
+            .iter()
+            .map(|(a, p)| {
+                let lines: Vec<&str> = p.lines().enumerate().filter(|(i, _)| i % 40 != 39).map(|(_, l)| l).collect();
+                (
+                    a.clone(),
+                    lines.join("\n").replace("more than once", "more than thrice") + "\n- Use the lookup tool.\n",
+                )
+            })
+            .collect();
+        let compiled: BTreeMap<&str, &str> = compiled.iter().map(|(a, p)| (a.as_str(), p.as_str())).collect();
+        let t = std::time::Instant::now();
+        let results = crate::analyze::compare_prompts(&compiled, &agents, 0.9);
+        let elapsed = t.elapsed();
+        println!(
+            "compare, 100 agents, {label}: {elapsed:?}; {} lost, {} changed",
+            results.iter().map(|r| r.missing.len()).sum::<usize>(),
+            results.iter().map(|r| r.changed.len()).sum::<usize>()
+        );
+        assert!(elapsed.as_secs() < 5);
     }
 }

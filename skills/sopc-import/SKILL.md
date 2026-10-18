@@ -75,7 +75,7 @@ For each agent:
 sopc overlap sops/originals
 ```
 
-This lists sentences shared by all agents, shared by subsets, near-copies that differ only by a value, and how much is unique to each agent. Use it as the map for the plan.
+This lists sentences shared by all agents, shared by subsets, near-copies that differ only by a value, and how much is unique to each agent. Use it as the map for the plan. With many agents, read `sopc overlap sops/originals --json` instead: `variables` groups each value (a restaurant name used in ten sentences is one variable, with its value per agent), `missing` lists text most agents have but some lack, and `unique` gives each agent's own text.
 
 ## 3. Checkpoint 1: the import plan
 
