@@ -681,7 +681,7 @@ pub fn overlap(prompts: &BTreeMap<String, String>, near: f64) -> Overlap {
             missing_in,
         });
     }
-    missing.sort_by(|a, b| b.present_in.len().cmp(&a.present_in.len()));
+    missing.sort_by_key(|m| std::cmp::Reverse(m.present_in.len()));
 
     // Unique: units whose sentence no other prompt has, in any wording; consecutive ones join.
     let alone = |k: usize| found_in[k].len() == 1 && !used[k];
