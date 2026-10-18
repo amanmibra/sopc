@@ -4,7 +4,7 @@
 #   curl -fsSL https://raw.githubusercontent.com/amanmibra/sopc/main/install.sh | sh
 #
 # Options (environment variables):
-#   SOPC_REF=<tag>              install a specific release, e.g. v0.0.13 (default: the latest release)
+#   SOPC_REF=<tag>              install a specific release, e.g. v0.0.14 (default: the latest release)
 #   SOPC_INSTALL_DIR=<dir>      where to put the binary (default: ~/.local/bin)
 #
 # To build from a branch or commit instead, use Rust: cargo install --git https://github.com/amanmibra/sopc --branch <branch> (or --rev <commit>)
