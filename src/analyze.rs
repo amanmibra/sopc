@@ -218,14 +218,101 @@ pub struct Overlap {
     units: BTreeMap<String, Vec<Span>>,
 }
 
-/// Words that change what a rule says: the counts and negations lint checks, and modal words.
+/// Words that change what a rule says: the count words and negations lint checks, and modals.
 fn is_rule_word(word: &str) -> bool {
     const MODALS: &[&str] =
         &["always", "must", "may", "should", "shall", "might", "can", "could", "only", "required", "optional"];
-    word.chars().any(|c| c.is_ascii_digit())
-        || NUMBER_WORDS.iter().any(|(n, _)| *n == word)
-        || NEGATIONS.contains(&word)
-        || MODALS.contains(&word)
+    NUMBER_WORDS.iter().any(|(n, _)| *n == word) || NEGATIONS.contains(&word) || MODALS.contains(&word)
+}
+
+/// Words before a number that make it a count or limit: "up to 3", "at most 1", "within 5".
+const LIMIT_BEFORE: &[&str] = &[
+    "to",
+    "most",
+    "least",
+    "than",
+    "max",
+    "maximum",
+    "min",
+    "minimum",
+    "within",
+    "under",
+    "over",
+    "exceed",
+    "exceeding",
+    "only",
+    "limit",
+    "first",
+    "last",
+    "every",
+    "after",
+    "before",
+];
+/// Words after a number that make it a count, frequency or duration: "2 times", "5 minutes".
+const COUNT_AFTER: &[&str] = &[
+    "time",
+    "times",
+    "x",
+    "attempt",
+    "attempts",
+    "try",
+    "tries",
+    "retry",
+    "retries",
+    "second",
+    "seconds",
+    "minute",
+    "minutes",
+    "min",
+    "mins",
+    "hour",
+    "hours",
+    "hr",
+    "hrs",
+    "day",
+    "days",
+    "week",
+    "weeks",
+    "month",
+    "months",
+    "year",
+    "years",
+    "ring",
+    "rings",
+    "call",
+    "calls",
+    "question",
+    "questions",
+    "item",
+    "items",
+    "message",
+    "messages",
+    "offer",
+    "offers",
+    "per",
+    "more",
+    "less",
+    "fewer",
+];
+
+/// Whether the words at `range` in `text` change what a rule says: a count word, a negation or a
+/// modal, or a plain whole number used as a count or limit ("up to 3", "2 times"). Other numbers
+/// (phone numbers, prices, times, addresses, URLs, ids) are values.
+fn changes_rule(text: &str, range: &std::ops::Range<usize>) -> bool {
+    static TOKEN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\S+").unwrap());
+    TOKEN.find_iter(&text[range.clone()]).any(|m| {
+        let core = m.as_str().trim_matches(|c| ".,;:!?\"'".contains(c));
+        if !core.is_empty() && core.bytes().all(|b| b.is_ascii_digit()) {
+            let (start, end) = (range.start + m.start(), range.start + m.end());
+            let before = words(&text[..start]);
+            let after = words(&text[end..]);
+            let up_to = before.len() >= 2 && before[before.len() - 2] == "up" && before[before.len() - 1] == "to";
+            let limit = before.last().is_some_and(|w| w != "to" && LIMIT_BEFORE.contains(&w.as_str()));
+            return up_to || limit || after.first().is_some_and(|w| COUNT_AFTER.contains(&w.as_str()));
+        }
+        // A token with digits in it (10pm, $12.99, 555-0142, a URL) is a value.
+        !core.chars().any(|c| c.is_ascii_digit()) && words(core).iter().any(|w| is_rule_word(w))
+    })
 }
 
 /// A snake_case name for the value at `range` in `text`: the content words just before it, else
@@ -234,7 +321,11 @@ fn variable_name(text: &str, range: &std::ops::Range<usize>) -> String {
     let content = |s: &str| -> Vec<String> {
         words(s)
             .into_iter()
-            .filter(|w| !STOPWORDS.contains(&w.as_str()) && w.chars().all(|c| c.is_ascii_lowercase()))
+            .filter(|w| {
+                !STOPWORDS.contains(&w.as_str())
+                    && !["us", "we", "our", "me", "my", "i", "please"].contains(&w.as_str())
+                    && w.chars().all(|c| c.is_ascii_lowercase())
+            })
             .collect()
     };
     let before = content(&text[..range.start]);
@@ -300,7 +391,7 @@ pub fn overlap(prompts: &BTreeMap<String, String>, near: f64) -> Overlap {
             differing.insert(agent.clone(), differing_words(other, &span.text).1);
             ranges.insert(agent.clone(), differing_ranges(other, &span.text));
         }
-        let rule = differing.values().flat_map(|d| words(d)).any(|w| is_rule_word(&w));
+        let rule = variants.iter().any(|(agent, span)| ranges[agent].iter().any(|r| changes_rule(&span.text, r)));
         let variable = (!rule).then(|| {
             let (agent, span) = variants.iter().min_by(|a, b| a.0.cmp(&b.0)).unwrap();
             let base = ranges[agent].first().map_or("value".into(), |r| variable_name(&span.text, r));

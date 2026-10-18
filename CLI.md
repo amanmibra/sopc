@@ -313,7 +313,13 @@ sopc overlap - --json < prompts.json    # the same JSON on stdin
 
 Prompts are compared sentence by sentence (list items and lines count as sentences; headings and sentences under 3 words are skipped), by their words, ignoring case and punctuation. Sentences at least 75% alike are near-copies.
 
-A near-copy's `kind` is `rule_word` when any differing word is a number or count (`10pm`, `once`, `twice`, `one` to `ten`), a negation (`not`, `never`, `no`, `don't`, `without`, ...) or a modal (`always`, `must`, `may`, `should`, `can`, `only`, `required`, `optional`, ...): the words lint checks for numeric and negation conflicts. Those are drift: decide which wording is right. Otherwise it's `value`, with a `suggested_variable` built from the words just before the value (else just after), for a `{{placeholder}}`. A number that really is a per-agent value (a phone number) shows as `rule_word`; review those.
+A near-copy's `kind` is `rule_word` when a differing word changes what a rule says, which is drift: decide which wording is right. Those words are:
+
+- count words: `once`, `twice`, `thrice`, `one` to `ten`;
+- negations (`not`, `never`, `no`, `don't`, `without`, ...) and modals (`always`, `must`, `may`, `should`, `can`, `only`, `required`, `optional`, ...);
+- a whole number used as a count, limit, frequency or duration: after `up to`, `at most`, `at least`, `more than`, `within`, `under`, `over`, `every`, ... (`up to 3`, `within 5 minutes`), or before `times`, `minutes`, `hours`, `days`, `calls`, `items`, `per`, ... (`2 times`).
+
+Any other differing text is a `value`, a placeholder candidate: names, and numbers that are identifiers, such as phone numbers (`555-0142`), prices (`$12.99`), times (`10pm`), street numbers, URLs, emails and ids. A value gets a `suggested_variable`, built from the content words just before it (else just after), e.g. `phone_number` for "Our phone number is 555-0142." Rename it as you like.
 
 With `--json`, the output is one object:
 

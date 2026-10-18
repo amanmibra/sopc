@@ -894,6 +894,81 @@ fn overlap_json_classifies_near_copies_and_locates_them() {
     }
 }
 
+/// The kind and suggested variable of the one near-copy between two one-sentence prompts.
+fn near_copy_kind(a: &str, b: &str) -> (String, serde_json::Value) {
+    let prompts: BTreeMap<String, String> =
+        [("bistro".to_string(), a.to_string()), ("diner".to_string(), b.to_string())].into_iter().collect();
+    let json = overlap(&prompts, 0.75).to_json();
+    let near = json["near_copies"].as_array().unwrap();
+    assert_eq!(near.len(), 1, "{a} / {b}: {json}");
+    (near[0]["kind"].as_str().unwrap().to_string(), near[0]["suggested_variable"].clone())
+}
+
+#[test]
+fn identifiers_are_values_and_counts_are_rule_words() {
+    let value = |name: &str| ("value".to_string(), serde_json::json!(name));
+    let rule = ("rule_word".to_string(), serde_json::Value::Null);
+    for (a, b, want) in [
+        (
+            "Our phone number is 555-0142 for catering orders.",
+            "Our phone number is 555-0199 for catering orders.",
+            value("phone_number"),
+        ),
+        (
+            "Our phone number is (212) 555 0142 for catering orders.",
+            "Our phone number is (718) 555 0199 for catering orders.",
+            value("phone_number"),
+        ),
+        (
+            "The large margherita pizza costs $12.99 before tax.",
+            "The large margherita pizza costs $13.49 before tax.",
+            value("pizza_costs"),
+        ),
+        (
+            "The kitchen closes at 10pm on weekdays and weekends.",
+            "The kitchen closes at 11pm on weekdays and weekends.",
+            value("kitchen_closes"),
+        ),
+        (
+            "Pickups are at 12 Mulberry Street, next to the bakery.",
+            "Pickups are at 48 Mulberry Street, next to the bakery.",
+            value("pickups"),
+        ),
+        (
+            "Menus are online at bistro.example/menu for every guest.",
+            "Menus are online at diner.example/menu for every guest.",
+            value("menus_online"),
+        ),
+        (
+            "Never upsell more than once per call to any guest.",
+            "Never upsell more than twice per call to any guest.",
+            rule.clone(),
+        ),
+        (
+            "Offer dessert up to 2 times during each call please.",
+            "Offer dessert up to 3 times during each call please.",
+            rule.clone(),
+        ),
+        (
+            "Offer dessert up to 2 during each call to every guest.",
+            "Offer dessert up to 3 during each call to every guest.",
+            rule.clone(),
+        ),
+        (
+            "Confirm the order within 5 minutes of the guest calling.",
+            "Confirm the order within 10 minutes of the guest calling.",
+            rule.clone(),
+        ),
+        (
+            "Guests must show ID before ordering wine at the table.",
+            "Guests may show ID before ordering wine at the table.",
+            rule.clone(),
+        ),
+    ] {
+        assert_eq!(near_copy_kind(a, b), want, "{a} / {b}");
+    }
+}
+
 #[test]
 fn compare_json_reports_scores_and_reworded_candidates() {
     let build = build(&sops());
