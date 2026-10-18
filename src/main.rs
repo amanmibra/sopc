@@ -232,22 +232,34 @@ enum Command {
     /// Show text that existing prompts share (for importing them)
     #[command(
         after_help = docs!("overlap"),
-        after_long_help = examples!("overlap", "  sopc overlap prompts/  Shared and near-copied text across prompts/*.md")
+        after_long_help = examples!("overlap", "  sopc overlap prompts/                Shared and near-copied text across prompts/*.md
+  sopc overlap prompts.json --json     The same as JSON, from {\"<agent-id>\": \"<prompt>\"}
+  sopc overlap - --json < prompts.json Prompts as JSON on stdin")
     )]
     Overlap {
-        /// Folder with one existing prompt per agent, named <agent-id>.md or .txt
+        /// Folder with one existing prompt per agent, named <agent-id>.md or .txt; or a JSON file
+        /// {"<agent-id>": "<prompt>"}; or - to read that JSON from stdin
         #[arg(value_name = "PROMPTS")]
         prompts: PathBuf,
+        /// Machine-readable output, with each sentence's position in its prompt
+        #[arg(long)]
+        json: bool,
     },
     /// Check the compiled prompts still say everything the original prompts did
     #[command(
         after_help = docs!("compare"),
-        after_long_help = examples!("compare", "  sopc compare --originals prompts/  Exit 1 if a compiled prompt lost or changed a sentence")
+        after_long_help = examples!("compare", "  sopc compare --originals prompts/              Exit 1 if a compiled prompt lost or changed a sentence
+  sopc compare --originals prompts.json --json   Originals as {\"<agent-id>\": \"<prompt>\"}; JSON output
+  sopc compare --originals - --json              The same JSON originals on stdin")
     )]
     Compare {
-        /// Folder with <agent-id>.md or .txt originals
-        #[arg(long)]
+        /// Folder with <agent-id>.md or .txt originals; or a JSON file {"<agent-id>": "<prompt>"};
+        /// or - to read that JSON from stdin
+        #[arg(long, value_name = "DIR|FILE|-")]
         originals: PathBuf,
+        /// Machine-readable output
+        #[arg(long)]
+        json: bool,
     },
     /// Compare each agent's live prompt and tools on its platform with the compiled ones (catches dashboard hotfixes)
     #[command(
@@ -548,12 +560,23 @@ fn run(command: Command, dir: Option<PathBuf>) -> anyhow::Result<ExitCode> {
                 }
             }
         }
-        Command::Overlap { prompts } => print!("{}", analyze::overlap(&read_prompts(&prompts)?, 0.75).text()),
-        Command::Compare { originals } => {
+        Command::Overlap { prompts, json } => {
+            let result = analyze::overlap(&read_prompts(&prompts)?, 0.75);
+            if json {
+                println!("{}", pretty_json(&result.to_json(), false));
+            } else {
+                print!("{}", result.text());
+            }
+        }
+        Command::Compare { originals, json } => {
             let root = root()?;
             let build = build(&root)?;
             let results = analyze::compare(&build, &read_prompts(&originals)?, 0.9);
-            print!("{}", analyze::compare_text(&results, &build));
+            if json {
+                println!("{}", pretty_json(&analyze::compare_json(&results, &build), false));
+            } else {
+                print!("{}", analyze::compare_text(&results, &build));
+            }
             if results.iter().any(|r| !r.ok()) {
                 return Ok(ExitCode::FAILURE);
             }
@@ -792,8 +815,17 @@ fn write_github(result: &plan::Affected, compared: Option<&str>) -> anyhow::Resu
     }
 }
 
-/// <name>.md and <name>.txt files in a folder, by name.
+/// Prompts by agent id: `<name>.md` and `<name>.txt` files in a folder, or a JSON object
+/// `{"<agent-id>": "<prompt>"}` in a file or, for `-`, on stdin.
 fn read_prompts(dir: &Path) -> anyhow::Result<BTreeMap<String, String>> {
+    if dir == Path::new("-") {
+        let mut text = String::new();
+        std::io::Read::read_to_string(&mut std::io::stdin(), &mut text).context("can't read stdin")?;
+        return prompts_from_json(&text, "stdin");
+    }
+    if dir.is_file() {
+        return prompts_from_json(&read_text(dir)?, &dir.display().to_string());
+    }
     let mut out = BTreeMap::new();
     for entry in std::fs::read_dir(dir).with_context(|| format!("can't read {}", dir.display()))? {
         let path = entry?.path();
@@ -805,6 +837,29 @@ fn read_prompts(dir: &Path) -> anyhow::Result<BTreeMap<String, String>> {
     }
     if out.is_empty() {
         let msg = format!("no .md or .txt files in {}", dir.display());
+        return Err(Issues(vec![Issue::error("no_prompts", "", msg)]).into());
+    }
+    Ok(out)
+}
+
+/// Prompts from a JSON object of agent id → prompt text.
+fn prompts_from_json(text: &str, source: &str) -> anyhow::Result<BTreeMap<String, String>> {
+    let bad = |msg: String| -> anyhow::Error { Issues(vec![Issue::error("bad_prompts", "", msg)]).into() };
+    let value: serde_json::Value =
+        serde_json::from_str(text).map_err(|e| bad(format!("{source} is not valid JSON: {e}")))?;
+    let object =
+        value.as_object().ok_or_else(|| bad(format!("{source} must be a JSON object of agent id to prompt text")))?;
+    let mut out = BTreeMap::new();
+    for (agent, prompt) in object {
+        let prompt =
+            prompt.as_str().ok_or_else(|| bad(format!("{source}: the prompt for `{agent}` must be a string")))?;
+        if agent.is_empty() {
+            return Err(bad(format!("{source}: an agent id is empty")));
+        }
+        out.insert(agent.clone(), prompt.to_string());
+    }
+    if out.is_empty() {
+        let msg = format!("no prompts in {source}");
         return Err(Issues(vec![Issue::error("no_prompts", "", msg)]).into());
     }
     Ok(out)

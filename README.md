@@ -64,6 +64,8 @@ The skill installs the `sopc` CLI if it's missing, finds your existing prompts (
 
 </details>
 
+For tools built on sopc, `sopc overlap --json` and `sopc compare --json` print these results as JSON, with prompts read from a folder, a JSON file or stdin ([CLI.md](CLI.md#sopc-overlap)).
+
 <details>
 <summary>Claude Code plugin (shares the skill with your whole team)</summary>
 

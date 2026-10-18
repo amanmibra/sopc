@@ -641,6 +641,99 @@ fn lint_does_not_catch_a_paraphrased_contradiction() {
     assert_eq!(strict.code, 0, "{}", strict.stdout);
 }
 
+/// Runs sopc with `stdin` as its standard input.
+fn run_with_stdin(want: i32, args: &[&str], stdin: &str) -> Output {
+    use std::io::Write;
+    let mut child = Command::new(env!("CARGO_BIN_EXE_sopc"))
+        .args(args)
+        .current_dir(repo_root())
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    child.stdin.take().unwrap().write_all(stdin.as_bytes()).unwrap();
+    let out = child.wait_with_output().unwrap();
+    let out = Output {
+        code: out.status.code().unwrap(),
+        stdout: String::from_utf8(out.stdout).unwrap(),
+        stderr: String::from_utf8(out.stderr).unwrap(),
+    };
+    assert_eq!(out.code, want, "sopc {args:?}\nstdout: {}\nstderr: {}", out.stdout, out.stderr);
+    out
+}
+
+/// The fixture's originals as a JSON object, agent id → prompt.
+fn originals_json() -> String {
+    let dir = fixture().join("originals");
+    let mut map = serde_json::Map::new();
+    for e in std::fs::read_dir(&dir).unwrap() {
+        let p = e.unwrap().path();
+        map.insert(p.file_stem().unwrap().to_str().unwrap().into(), read(&p).into());
+    }
+    serde_json::Value::Object(map).to_string()
+}
+
+/// Golden JSON output; set SOPC_UPDATE_GOLDEN=1 to rewrite it.
+fn assert_golden(name: &str, actual: &str) {
+    let path = fixture().join("analysis").join(name);
+    if std::env::var_os("SOPC_UPDATE_GOLDEN").is_some() {
+        std::fs::write(&path, actual).unwrap();
+    }
+    assert_eq!(actual, read(&path), "{name} differs from the golden output");
+}
+
+#[test]
+fn compare_json_matches_golden_from_a_folder_a_file_or_stdin() {
+    let sops = fixture().join("sops");
+    let sops = sops.to_str().unwrap();
+    let originals = fixture().join("originals");
+    let out = run(1, &["compare", "-C", sops, "--originals", originals.to_str().unwrap(), "--json"]);
+    assert_golden("compare.json", &out.stdout);
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("originals.json");
+    std::fs::write(&file, originals_json()).unwrap();
+    assert_eq!(run(1, &["compare", "-C", sops, "--originals", file.to_str().unwrap(), "--json"]).stdout, out.stdout);
+    assert_eq!(
+        run_with_stdin(1, &["compare", "-C", sops, "--originals", "-", "--json"], &originals_json()).stdout,
+        out.stdout
+    );
+    // The compiled prompts as originals: nothing lost, exit 0.
+    let compiled = dir.path().join("compiled");
+    std::fs::create_dir(&compiled).unwrap();
+    for agent in ["luigis-trattoria", "sakura-sushi", "tonys-pizza"] {
+        let prompt = read(&fixture().join(format!("expected/{agent}.prompt.md")));
+        std::fs::write(compiled.join(format!("{agent}.md")), prompt).unwrap();
+    }
+    let out = run(0, &["compare", "-C", sops, "--originals", compiled.to_str().unwrap(), "--json"]);
+    let json: serde_json::Value = serde_json::from_str(&out.stdout).unwrap();
+    assert_eq!(json["summary"]["ok"], true);
+}
+
+#[test]
+fn overlap_json_matches_golden_from_a_folder_a_file_or_stdin() {
+    let out = run(0, &["overlap", fixture().join("originals").to_str().unwrap(), "--json"]);
+    assert_golden("overlap.json", &out.stdout);
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("prompts.json");
+    std::fs::write(&file, originals_json()).unwrap();
+    assert_eq!(run(0, &["overlap", file.to_str().unwrap(), "--json"]).stdout, out.stdout);
+    assert_eq!(run_with_stdin(0, &["overlap", "-", "--json"], &originals_json()).stdout, out.stdout);
+}
+
+#[test]
+fn json_prompts_must_be_an_object_of_strings() {
+    for (input, error) in [
+        ("[1]", "error [bad_prompts] stdin must be a JSON object of agent id to prompt text"),
+        ("{\"a\": 1}", "error [bad_prompts] stdin: the prompt for `a` must be a string"),
+        ("{}", "error [no_prompts] no prompts in stdin"),
+        ("nope", "error [bad_prompts] stdin is not valid JSON"),
+    ] {
+        let out = run_with_stdin(1, &["overlap", "-", "--json"], input);
+        assert!(out.stderr.starts_with(error), "{input}: {}", out.stderr);
+    }
+}
+
 #[test]
 fn overlap_and_lint_run() {
     let out = run(0, &["overlap", fixture().join("originals").to_str().unwrap()]);

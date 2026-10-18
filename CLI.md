@@ -297,13 +297,85 @@ The new file is written before the old one is deleted. Comments at the top of a 
 
 ## sopc overlap
 
-For importing existing prompts: shows the text that several prompts share and near-copies that differ only by a value (placeholder candidates, or drift).
+For importing existing prompts: shows the text that several prompts share, and near-copies: the same sentence with different words in some prompts. A near-copy whose differing words are values (a name, a place) is a placeholder candidate; one whose differing words change a rule is drift.
 
 ```sh
 sopc overlap prompts/
+sopc overlap prompts/ --json
+sopc overlap prompts.json --json        # {"<agent-id>": "<prompt>", ...}
+sopc overlap - --json < prompts.json    # the same JSON on stdin
 ```
 
-`PROMPTS` is a folder with one existing prompt per agent, named `<agent-id>.md` or `.txt`.
+| Argument or flag | Effect |
+|---|---|
+| `PROMPTS` | The existing prompts, one per agent: a folder of `<agent-id>.md` or `.txt` files, a JSON file holding an object of agent id → prompt text, or `-` to read that JSON from stdin |
+| `--json` | Machine-readable output (below) |
+
+Prompts are compared sentence by sentence (list items and lines count as sentences; headings and sentences under 3 words are skipped), by their words, ignoring case and punctuation. Sentences at least 75% alike are near-copies.
+
+A near-copy's `kind` is `rule_word` when any differing word is a number or count (`10pm`, `once`, `twice`, `one` to `ten`), a negation (`not`, `never`, `no`, `don't`, `without`, ...) or a modal (`always`, `must`, `may`, `should`, `can`, `only`, `required`, `optional`, ...): the words lint checks for numeric and negation conflicts. Those are drift: decide which wording is right. Otherwise it's `value`, with a `suggested_variable` built from the words just before the value (else just after), for a `{{placeholder}}`. A number that really is a per-agent value (a phone number) shows as `rule_word`; review those.
+
+With `--json`, the output is one object:
+
+| Field | Value |
+|---|---|
+| `agents` | Agent ids, sorted |
+| `shared` | `[{"text", "agents", "occurrences"}]`: sentences found in more than one prompt (ignoring case and punctuation), in first-seen order. `text` is the first agent's copy |
+| `near_copies` | `[{"kind", "agents_by_variant", "differing_tokens", "suggested_variable", "occurrences"}]`. `agents_by_variant` maps each wording to the agents that use it; `differing_tokens` maps each agent to its differing words; `suggested_variable` is `null` for `rule_word` |
+| `only_in_one` | Agent id → how many of its sentences no other prompt has |
+
+Each occurrence is `{"agent", "start", "end", "text"}`: where the sentence is in that agent's prompt, so a UI can highlight it. `start` and `end` count characters (Unicode code points; for text outside the Basic Multilingual Plane, convert to UTF-16 units in JavaScript), with `end` exclusive, and `text` is exactly that slice. Near-copy occurrences add `differing: [{"start", "end", "text"}]`, the differing words, as offsets in the same prompt.
+
+```json
+{
+  "agents": ["luigis-trattoria", "sakura-sushi"],
+  "shared": [
+    {
+      "text": "Speak warmly and briefly.",
+      "agents": ["luigis-trattoria", "sakura-sushi"],
+      "occurrences": [
+        {"agent": "luigis-trattoria", "start": 142, "end": 167, "text": "Speak warmly and briefly."},
+        {"agent": "sakura-sushi", "start": 137, "end": 162, "text": "Speak warmly and briefly."}
+      ]
+    }
+  ],
+  "near_copies": [
+    {
+      "kind": "value",
+      "agents_by_variant": {
+        "You are the phone host for Luigi's Trattoria.": ["luigis-trattoria"],
+        "You are the phone host for Sakura Sushi.": ["sakura-sushi"]
+      },
+      "differing_tokens": {"luigis-trattoria": "Luigi's Trattoria", "sakura-sushi": "Sakura Sushi"},
+      "suggested_variable": "phone_host",
+      "occurrences": [
+        {"agent": "luigis-trattoria", "start": 0, "end": 45, "text": "You are the phone host for Luigi's Trattoria.",
+         "differing": [{"start": 27, "end": 44, "text": "Luigi's Trattoria"}]},
+        {"agent": "sakura-sushi", "start": 0, "end": 40, "text": "You are the phone host for Sakura Sushi.",
+         "differing": [{"start": 27, "end": 39, "text": "Sakura Sushi"}]}
+      ]
+    },
+    {
+      "kind": "rule_word",
+      "agents_by_variant": {
+        "Never upsell more than twice per call.": ["luigis-trattoria"],
+        "Never upsell more than once per call.": ["sakura-sushi"]
+      },
+      "differing_tokens": {"luigis-trattoria": "twice", "sakura-sushi": "once"},
+      "suggested_variable": null,
+      "occurrences": [
+        {"agent": "luigis-trattoria", "start": 196, "end": 234, "text": "Never upsell more than twice per call.",
+         "differing": [{"start": 219, "end": 224, "text": "twice"}]},
+        {"agent": "sakura-sushi", "start": 191, "end": 228, "text": "Never upsell more than once per call.",
+         "differing": [{"start": 214, "end": 218, "text": "once"}]}
+      ]
+    }
+  ],
+  "only_in_one": {"luigis-trattoria": 2, "sakura-sushi": 5}
+}
+```
+
+`overlap` exits 0, unless the prompts can't be read (`no_prompts`: none found; `bad_prompts`: the JSON isn't an object of strings).
 
 ## sopc compare
 
@@ -311,11 +383,54 @@ For importing existing prompts: checks that each compiled prompt still says ever
 
 ```sh
 sopc compare --originals prompts/
+sopc compare --originals prompts/ --json
+sopc compare --originals originals.json --json   # {"<agent-id>": "<prompt>", ...}
+sopc compare --originals - --json < originals.json
 ```
 
 | Flag | Effect |
 |---|---|
-| `--originals DIR` | Folder with the original prompts, `<agent-id>.md` or `.txt` (required) |
+| `--originals DIR\|FILE\|-` | The original prompts: a folder of `<agent-id>.md` or `.txt` files, a JSON file holding an object of agent id → prompt text, or `-` to read that JSON from stdin (required) |
+| `--json` | Machine-readable output (below). The exit code is the same |
+
+Each original sentence is **kept** (found in the compiled prompt, or **reworded**: its words spread over several compiled sentences), **changed** (a compiled sentence at least half alike differs in some words) or **lost**. Compiled sentences with no counterpart in the original are **added** (information only; sopc's own tool lines are left out).
+
+With `--json`, the output is `{"summary": {"ok", "agents", "failed"}, "agents": [...], "no_original": [...]}`. `failed` counts agents with a lost or changed sentence; `no_original` lists compiled agents no original was given for. Each agent is:
+
+| Field | Value |
+|---|---|
+| `agent`, `ok` | The agent id; `false` if a sentence was lost or changed |
+| `sentences_total`, `kept`, `score` | Original sentences, how many were kept (reworded ones included), and `kept / sentences_total` (`1.0` when there are none) |
+| `lost` | `[{"text"}]` |
+| `changed` | `[{"original", "compiled", "changed_words": {"original", "compiled"}}]` |
+| `reworded` | `[{"original", "compiled_candidates"}]`: the compiled sentences its words were spread over |
+| `added` | `[{"text"}]` |
+
+```json
+{
+  "summary": {"ok": false, "agents": 1, "failed": 1},
+  "agents": [
+    {
+      "agent": "luigis-trattoria",
+      "ok": false,
+      "sentences_total": 8,
+      "kept": 7,
+      "score": 0.875,
+      "lost": [],
+      "changed": [
+        {
+          "original": "Never upsell more than twice per call.",
+          "compiled": "Never upsell more than once per call.",
+          "changed_words": {"original": "twice", "compiled": "once"}
+        }
+      ],
+      "reworded": [],
+      "added": [{"text": "Never upsell more than once per call."}]
+    }
+  ],
+  "no_original": ["sakura-sushi", "tonys-pizza"]
+}
+```
 
 ## sopc migrate
 

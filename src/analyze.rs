@@ -61,17 +61,54 @@ fn split_sentences(line: &str) -> Vec<&str> {
 
 /// Prompt text as sentences, list items and lines; headings and bare labels are dropped.
 pub fn units(text: &str) -> Vec<String> {
+    unit_ranges(text).into_iter().map(|r| text[r].to_string()).collect()
+}
+
+/// Where each of `units` is in the text, as byte ranges: every unit is a slice of the text.
+fn unit_ranges(text: &str) -> Vec<std::ops::Range<usize>> {
     let mut out = vec![];
-    for line in text.lines().map(str::trim) {
+    let mut line_start = 0;
+    for raw in text.split_inclusive('\n') {
+        let offset = line_start;
+        line_start += raw.len();
+        let raw = raw.strip_suffix('\n').unwrap_or(raw);
+        let raw = raw.strip_suffix('\r').unwrap_or(raw);
+        let line = raw.trim();
         if line.is_empty() || HEADING.is_match(line) || LABEL_ONLY.is_match(line) {
             continue;
         }
-        let line = LIST_MARKER.replace(line, "");
-        let line = SOPC_PREFIX.replace(&line, "");
-        out.extend(split_sentences(&line).into_iter().map(str::trim).filter(|s| !s.is_empty()).map(String::from));
+        let mut at = offset + (raw.len() - raw.trim_start().len());
+        let mut line = line;
+        for prefix in [&*LIST_MARKER, &*SOPC_PREFIX] {
+            let skip = prefix.find(line).map_or(0, |m| m.end());
+            (line, at) = (&line[skip..], at + skip);
+        }
+        for s in split_sentences(line) {
+            let start = at + (s.as_ptr() as usize - line.as_ptr() as usize) + (s.len() - s.trim_start().len());
+            let unit = s.trim();
+            if !unit.is_empty() && words(unit).len() >= MIN_WORDS {
+                out.push(start..start + unit.len());
+            }
+        }
     }
-    out.retain(|u| words(u).len() >= MIN_WORDS);
     out
+}
+
+/// A unit of a prompt and where it is, in characters (Unicode scalar values).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Span {
+    pub text: String,
+    pub start: usize,
+    pub end: usize,
+}
+
+/// `units` with their positions, in characters.
+pub fn unit_spans(text: &str) -> Vec<Span> {
+    let chars = |byte: usize| text[..byte].chars().count();
+    unit_ranges(text)
+        .into_iter()
+        .map(|r| Span { text: text[r.clone()].to_string(), start: chars(r.start), end: chars(r.end) })
+        .collect()
 }
 
 /// The lowercased words of text.
@@ -116,58 +153,132 @@ pub fn differing_words(a: &str, b: &str) -> (String, String) {
     (trim(da), trim(db))
 }
 
-fn dedupe(items: Vec<String>) -> Vec<String> {
+/// Where `b`'s words differ from `a`'s, as byte ranges in `b`: one per run of changed words,
+/// without surrounding punctuation. The same diff as `differing_words`.
+fn differing_ranges(a: &str, b: &str) -> Vec<std::ops::Range<usize>> {
+    static TOKEN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\S+").unwrap());
+    let key = |s: &str| -> Vec<String> {
+        s.split_whitespace().map(|w| w.trim_matches(|c| ".,;:!?\"'".contains(c)).to_lowercase()).collect()
+    };
+    let tokens: Vec<std::ops::Range<usize>> = TOKEN.find_iter(b).map(|m| m.range()).collect();
+    let mut out = vec![];
+    for op in capture_diff_slices(Algorithm::Myers, &key(a), &key(b)) {
+        let (tag, _, new) = op.as_tag_tuple();
+        if tag == DiffTag::Equal || new.is_empty() {
+            continue;
+        }
+        let (start, end) = (tokens[new.start].start, tokens[new.end - 1].end);
+        let text = &b[start..end];
+        let trimmed = text.trim_start_matches(|c| ".,;:!?\"'".contains(c));
+        let start = start + (text.len() - trimmed.len());
+        let end = start + trimmed.trim_end_matches(|c| ".,;:!?\"'".contains(c)).len();
+        if start < end {
+            out.push(start..end);
+        }
+    }
+    out
+}
+
+fn dedupe(items: Vec<Span>) -> Vec<Span> {
     let mut seen = HashSet::new();
-    items.into_iter().filter(|u| seen.insert(norm(u))).collect()
+    items.into_iter().filter(|u| seen.insert(norm(&u.text))).collect()
 }
 
 // --- overlap ---------------------------------------------------------------------------------------
 
-/// The same sentence with a different value in some prompts. Both maps are by agent.
+/// Text that several prompts share, with each prompt's own copy (agent, unit).
+pub struct Shared {
+    pub text: String,
+    pub occurrences: Vec<(String, Span)>,
+}
+
+impl Shared {
+    pub fn agents(&self) -> Vec<String> {
+        self.occurrences.iter().map(|(a, _)| a.clone()).collect()
+    }
+}
+
+/// The same sentence with a different value in some prompts. The maps are by agent.
 pub struct NearCopy {
-    pub variants: BTreeMap<String, String>,
+    pub variants: BTreeMap<String, Span>,
+    /// The words that differ, and where they are in the variant (byte ranges in its text).
     pub differing: BTreeMap<String, String>,
+    differing_ranges: BTreeMap<String, Vec<std::ops::Range<usize>>>,
+    /// `rule_word` when a differing word changes what a rule says (a number, a negation, `must`
+    /// vs `may`): drift. `value` otherwise: a placeholder candidate, named by `variable`.
+    pub kind: &'static str,
+    pub variable: Option<String>,
 }
 
 /// What a set of prompts shares.
 pub struct Overlap {
     pub agents: Vec<String>,
-    pub shared: Vec<(Vec<String>, String)>, // (agents, sentence)
+    pub shared: Vec<Shared>,
     pub near_copies: Vec<NearCopy>,
-    units: BTreeMap<String, Vec<String>>,
+    units: BTreeMap<String, Vec<Span>>,
+}
+
+/// Words that change what a rule says: the counts and negations lint checks, and modal words.
+fn is_rule_word(word: &str) -> bool {
+    const MODALS: &[&str] =
+        &["always", "must", "may", "should", "shall", "might", "can", "could", "only", "required", "optional"];
+    word.chars().any(|c| c.is_ascii_digit())
+        || NUMBER_WORDS.iter().any(|(n, _)| *n == word)
+        || NEGATIONS.contains(&word)
+        || MODALS.contains(&word)
+}
+
+/// A snake_case name for the value at `range` in `text`: the content words just before it, else
+/// just after it.
+fn variable_name(text: &str, range: &std::ops::Range<usize>) -> String {
+    let content = |s: &str| -> Vec<String> {
+        words(s)
+            .into_iter()
+            .filter(|w| !STOPWORDS.contains(&w.as_str()) && w.chars().all(|c| c.is_ascii_lowercase()))
+            .collect()
+    };
+    let before = content(&text[..range.start]);
+    let after = content(&text[range.end..]);
+    let picked: Vec<String> = if !before.is_empty() {
+        before[before.len().saturating_sub(2)..].to_vec()
+    } else {
+        after.into_iter().take(2).collect()
+    };
+    if picked.is_empty() {
+        "value".into()
+    } else {
+        picked.join("_")
+    }
 }
 
 /// Finds what prompts share; sentences at least `near` similar are near-copies.
 pub fn overlap(prompts: &BTreeMap<String, String>, near: f64) -> Overlap {
     let agents: Vec<String> = prompts.keys().cloned().collect();
-    let per_agent: BTreeMap<String, Vec<String>> = prompts.iter().map(|(a, p)| (a.clone(), dedupe(units(p)))).collect();
+    let per_agent: BTreeMap<String, Vec<Span>> =
+        prompts.iter().map(|(a, p)| (a.clone(), dedupe(unit_spans(p)))).collect();
 
-    // norm → [(agent, sentence)], in first-seen order
-    let mut exact: Vec<(String, Vec<(String, String)>)> = vec![];
+    // norm → [(agent, unit)], in first-seen order
+    let mut exact: Vec<(String, Vec<(String, Span)>)> = vec![];
     for (agent, us) in &per_agent {
         for u in us {
-            let key = norm(u);
+            let key = norm(&u.text);
             match exact.iter_mut().find(|(k, _)| *k == key) {
                 Some((_, list)) => list.push((agent.clone(), u.clone())),
                 None => exact.push((key, vec![(agent.clone(), u.clone())])),
             }
         }
     }
-    let shared: Vec<(Vec<String>, String)> = exact
-        .iter()
-        .filter(|(_, l)| l.len() > 1)
-        .map(|(_, l)| (l.iter().map(|(a, _)| a.clone()).collect(), l[0].1.clone()))
-        .collect();
 
-    let singles: Vec<&(String, Vec<(String, String)>)> = exact.iter().filter(|(_, l)| l.len() < agents.len()).collect();
+    let singles: Vec<&(String, Vec<(String, Span)>)> = exact.iter().filter(|(_, l)| l.len() < agents.len()).collect();
     let mut used: HashSet<&str> = HashSet::new();
+    let mut names: HashSet<String> = HashSet::new();
     let mut near_copies = vec![];
     for (i, (key, list)) in singles.iter().map(|e| (&e.0, &e.1)).enumerate() {
         if used.contains(key.as_str()) {
             continue;
         }
         // Variants in the order they were merged: it decides which one each is compared with.
-        let mut variants: Vec<(String, String)> = list.clone();
+        let mut variants: Vec<(String, Span)> = list.clone();
         for (other_key, other) in singles[i + 1..].iter().map(|e| (&e.0, &e.1)) {
             if used.contains(other_key.as_str()) || other.iter().any(|(a, _)| variants.iter().any(|(b, _)| a == b)) {
                 continue;
@@ -177,32 +288,123 @@ pub fn overlap(prompts: &BTreeMap<String, String>, near: f64) -> Overlap {
                 used.insert(other_key);
             }
         }
-        let norms: HashSet<String> = variants.iter().map(|(_, v)| norm(v)).collect();
-        if variants.len() > 1 && norms.len() > 1 {
-            used.insert(key);
-            let differing = variants
-                .iter()
-                .map(|(agent, text)| {
-                    let other = variants.iter().find(|(a, _)| a != agent).map_or("", |(_, t)| t.as_str());
-                    (agent.clone(), differing_words(other, text).1)
-                })
-                .collect();
-            let variants = variants.into_iter().collect();
-            near_copies.push(NearCopy { variants, differing });
+        let norms: HashSet<String> = variants.iter().map(|(_, v)| norm(&v.text)).collect();
+        if variants.len() < 2 || norms.len() < 2 {
+            continue;
         }
+        used.insert(key);
+        let (mut differing, mut ranges) = (BTreeMap::new(), BTreeMap::new());
+        for (agent, span) in &variants {
+            // Compared with the first variant that words it differently.
+            let other = variants.iter().find(|(_, o)| norm(&o.text) != norm(&span.text)).map_or("", |(_, o)| &o.text);
+            differing.insert(agent.clone(), differing_words(other, &span.text).1);
+            ranges.insert(agent.clone(), differing_ranges(other, &span.text));
+        }
+        let rule = differing.values().flat_map(|d| words(d)).any(|w| is_rule_word(&w));
+        let variable = (!rule).then(|| {
+            let (agent, span) = variants.iter().min_by(|a, b| a.0.cmp(&b.0)).unwrap();
+            let base = ranges[agent].first().map_or("value".into(), |r| variable_name(&span.text, r));
+            let mut name = base.clone();
+            for n in 2.. {
+                if names.insert(name.clone()) {
+                    break;
+                }
+                name = format!("{base}_{n}");
+            }
+            name
+        });
+        let kind = if rule { "rule_word" } else { "value" };
+        let variants = variants.into_iter().collect();
+        near_copies.push(NearCopy { variants, differing, differing_ranges: ranges, kind, variable });
     }
-    let shared = shared.into_iter().filter(|(_, text)| !used.contains(norm(text).as_str())).collect();
+    let shared = exact
+        .iter()
+        .filter(|(key, l)| l.len() > 1 && !used.contains(key.as_str()))
+        .map(|(_, l)| Shared { text: l[0].1.text.clone(), occurrences: l.clone() })
+        .collect();
     Overlap { agents, shared, near_copies, units: per_agent }
 }
 
+/// A unit's position as JSON, in characters: `{"agent", "start", "end", "text"}`.
+fn occurrence_json(agent: &str, span: &Span) -> Json {
+    json!({"agent": agent, "start": span.start, "end": span.end, "text": span.text})
+}
+
 impl Overlap {
+    /// Sentences that are in one prompt only, by agent.
+    fn only_in_one(&self) -> BTreeMap<&str, usize> {
+        let mut covered: HashSet<(&str, String)> = HashSet::new();
+        for s in &self.shared {
+            covered.extend(s.occurrences.iter().map(|(a, u)| (a.as_str(), norm(&u.text))));
+        }
+        for nc in &self.near_copies {
+            covered.extend(nc.variants.iter().map(|(a, v)| (a.as_str(), norm(&v.text))));
+        }
+        self.agents
+            .iter()
+            .map(|a| {
+                (a.as_str(), self.units[a].iter().filter(|u| !covered.contains(&(a.as_str(), norm(&u.text)))).count())
+            })
+            .collect()
+    }
+
+    pub fn to_json(&self) -> Json {
+        let shared: Vec<Json> = self
+            .shared
+            .iter()
+            .map(|s| {
+                let occurrences: Vec<Json> = s.occurrences.iter().map(|(a, u)| occurrence_json(a, u)).collect();
+                json!({"text": s.text, "agents": s.agents(), "occurrences": occurrences})
+            })
+            .collect();
+        let near_copies: Vec<Json> = self
+            .near_copies
+            .iter()
+            .map(|nc| {
+                let mut by_variant = serde_json::Map::new();
+                for (agent, span) in &nc.variants {
+                    let entry = by_variant.entry(span.text.clone()).or_insert_with(|| json!([]));
+                    entry.as_array_mut().unwrap().push(json!(agent));
+                }
+                let occurrences: Vec<Json> = nc
+                    .variants
+                    .iter()
+                    .map(|(agent, span)| {
+                        let chars = |byte: usize| span.start + span.text[..byte].chars().count();
+                        let differing: Vec<Json> = nc.differing_ranges[agent]
+                            .iter()
+                            .map(|r| json!({"start": chars(r.start), "end": chars(r.end), "text": &span.text[r.clone()]}))
+                            .collect();
+                        let mut o = occurrence_json(agent, span);
+                        o["differing"] = json!(differing);
+                        o
+                    })
+                    .collect();
+                json!({
+                    "kind": nc.kind,
+                    "agents_by_variant": by_variant,
+                    "differing_tokens": nc.differing,
+                    "suggested_variable": nc.variable,
+                    "occurrences": occurrences,
+                })
+            })
+            .collect();
+        json!({
+            "agents": self.agents,
+            "shared": shared,
+            "near_copies": near_copies,
+            "only_in_one": self.only_in_one(),
+        })
+    }
+
     pub fn text(&self) -> String {
         let mut out = vec![format!("{} prompts: {}", self.agents.len(), self.agents.join(", ")), String::new()];
-        let mut groups: Vec<(&Vec<String>, Vec<&str>)> = vec![];
-        for (agents, text) in &self.shared {
+        let mut groups: Vec<(Vec<String>, Vec<&str>)> = vec![];
+        for s in &self.shared {
+            let agents = s.agents();
             match groups.iter_mut().find(|(a, _)| *a == agents) {
-                Some((_, texts)) => texts.push(text),
-                None => groups.push((agents, vec![text])),
+                Some((_, texts)) => texts.push(&s.text),
+                None => groups.push((agents, vec![&s.text])),
             }
         }
         groups.sort_by(|(a, _), (b, _)| b.len().cmp(&a.len()).then_with(|| a.cmp(b)));
@@ -215,25 +417,16 @@ impl Overlap {
         if !self.near_copies.is_empty() {
             out.push("Near-copies (same sentence, different value; use a {{placeholder}}):".into());
             for nc in &self.near_copies {
-                out.push(format!("  - {}", nc.variants.values().next().unwrap()));
+                let note = match &nc.variable {
+                    Some(name) => format!("  (placeholder: {{{{{name}}}}})"),
+                    None => "  (drift: a rule word differs)".into(),
+                };
+                out.push(format!("  - {}{note}", nc.variants.values().next().unwrap().text));
                 out.extend(nc.differing.iter().map(|(a, d)| format!("      {a}: {}", quote(d))));
             }
             out.push(String::new());
         }
-        let mut covered: HashSet<(&str, String)> = HashSet::new();
-        for (agents, text) in &self.shared {
-            covered.extend(agents.iter().map(|a| (a.as_str(), norm(text))));
-        }
-        for nc in &self.near_copies {
-            covered.extend(nc.variants.iter().map(|(a, v)| (a.as_str(), norm(v))));
-        }
-        let only: Vec<String> = self
-            .agents
-            .iter()
-            .map(|a| {
-                format!("{a} {}", self.units[a].iter().filter(|u| !covered.contains(&(a.as_str(), norm(u)))).count())
-            })
-            .collect();
+        let only: Vec<String> = self.only_in_one().iter().map(|(a, n)| format!("{a} {n}")).collect();
         out.push(format!("Only in one prompt (sentences): {}", only.join(", ")));
         out.join("\n") + "\n"
     }
@@ -247,8 +440,8 @@ pub struct Comparison {
     pub agent: String,
     pub total: usize,
     pub missing: Vec<String>,
-    pub changed: Vec<(String, String)>, // (original, rendered)
-    pub reworded: Vec<String>,
+    pub changed: Vec<(String, String)>,       // (original, rendered)
+    pub reworded: Vec<(String, Vec<String>)>, // (original, the compiled units it was spread over)
     pub added: Vec<String>,
 }
 
@@ -258,7 +451,11 @@ impl Comparison {
         if self.total == 0 {
             return 1.0;
         }
-        (self.total - self.missing.len() - self.changed.len()) as f64 / self.total as f64
+        self.kept() as f64 / self.total as f64
+    }
+    /// Original sentences found in the compiled prompt, as written or reworded.
+    pub fn kept(&self) -> usize {
+        self.total - self.missing.len() - self.changed.len()
     }
     /// Nothing was lost or changed.
     pub fn ok(&self) -> bool {
@@ -283,16 +480,16 @@ fn word_coverage(unit: &str, pool: &HashSet<String>) -> f64 {
     content.iter().filter(|w| pool.contains(*w)).count() as f64 / content.len() as f64
 }
 
-/// Whether the unit's words are spread over several rendered units.
-fn split_across(unit: &str, pool: &[String]) -> bool {
+/// The rendered units the unit's words are spread over, if it was split across several.
+fn split_across(unit: &str, pool: &[String]) -> Option<Vec<String>> {
     let unit_words: HashSet<String> = words(unit).into_iter().collect();
     let parts: Vec<&String> =
         pool.iter().filter(|p| !GENERATED.is_match(p) && word_coverage(p, &unit_words) >= 0.6).collect();
     if parts.len() < 2 {
-        return false;
+        return None;
     }
     let union: HashSet<String> = parts.iter().flat_map(|p| words(p)).collect();
-    word_coverage(unit, &union) >= 0.7
+    (word_coverage(unit, &union) >= 0.7).then(|| parts.into_iter().cloned().collect())
 }
 
 /// Checks each rendered prompt still says everything its original said.
@@ -313,8 +510,8 @@ pub fn compare(build: &Build, originals: &BTreeMap<String, String>, threshold: f
                         _ => Some((p, s)),
                     }
                 });
-            if split_across(u, &rendered) {
-                c.reworded.push(u.clone());
+            if let Some(parts) = split_across(u, &rendered) {
+                c.reworded.push((u.clone(), parts));
             } else if let Some((p, _)) = closest.filter(|(_, s)| *s >= 0.5) {
                 c.changed.push((u.clone(), p.clone()));
             } else {
@@ -335,6 +532,46 @@ pub fn compare(build: &Build, originals: &BTreeMap<String, String>, threshold: f
     results
 }
 
+/// Agents the build has but no original was given for.
+fn without_original<'a>(results: &[Comparison], build: &'a Build) -> Vec<&'a str> {
+    build.agents.keys().filter(|id| !results.iter().any(|r| &r.agent == *id)).map(String::as_str).collect()
+}
+
+pub fn compare_json(results: &[Comparison], build: &Build) -> Json {
+    let agents: Vec<Json> = results
+        .iter()
+        .map(|r| {
+            let changed: Vec<Json> = r
+                .changed
+                .iter()
+                .map(|(original, compiled)| {
+                    let (was, now) = differing_words(original, compiled);
+                    json!({"original": original, "compiled": compiled, "changed_words": {"original": was, "compiled": now}})
+                })
+                .collect();
+            let reworded: Vec<Json> =
+                r.reworded.iter().map(|(u, parts)| json!({"original": u, "compiled_candidates": parts})).collect();
+            json!({
+                "agent": r.agent,
+                "ok": r.ok(),
+                "sentences_total": r.total,
+                "kept": r.kept(),
+                "score": r.coverage(),
+                "lost": r.missing.iter().map(|u| json!({"text": u})).collect::<Vec<_>>(),
+                "changed": changed,
+                "reworded": reworded,
+                "added": r.added.iter().map(|u| json!({"text": u})).collect::<Vec<_>>(),
+            })
+        })
+        .collect();
+    let failed = results.iter().filter(|r| !r.ok()).count();
+    json!({
+        "summary": {"ok": failed == 0, "agents": results.len(), "failed": failed},
+        "agents": agents,
+        "no_original": without_original(results, build),
+    })
+}
+
 pub fn compare_text(results: &[Comparison], build: &Build) -> String {
     let mut out = vec![];
     for r in results {
@@ -346,11 +583,10 @@ pub fn compare_text(results: &[Comparison], build: &Build) -> String {
             out.push(format!("  ! changed:  {original}"));
             out.push(format!("              now: {rendered}   ({} → {})", quote(&was), quote(&now)));
         }
-        out.extend(r.reworded.iter().map(|u| format!("  ~ reworded: {u}")));
+        out.extend(r.reworded.iter().map(|(u, _)| format!("  ~ reworded: {u}")));
         out.extend(r.added.iter().map(|u| format!("  + added:    {u}")));
     }
-    let unmatched: Vec<&str> =
-        build.agents.keys().filter(|id| !results.iter().any(|r| &r.agent == *id)).map(String::as_str).collect();
+    let unmatched = without_original(results, build);
     if !unmatched.is_empty() {
         out.push(format!("no original for: {}", unmatched.join(", ")));
     }

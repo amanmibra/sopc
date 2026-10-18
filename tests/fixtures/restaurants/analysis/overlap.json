@@ -1,0 +1,248 @@
+{
+  "agents": [
+    "luigis-trattoria",
+    "sakura-sushi",
+    "tonys-pizza"
+  ],
+  "shared": [
+    {
+      "text": "You take orders, answer questions about the menu and hours, and hand off to staff when needed.",
+      "agents": [
+        "luigis-trattoria",
+        "sakura-sushi",
+        "tonys-pizza"
+      ],
+      "occurrences": [
+        {
+          "agent": "luigis-trattoria",
+          "start": 46,
+          "end": 140,
+          "text": "You take orders, answer questions about the menu and hours, and hand off to staff when needed."
+        },
+        {
+          "agent": "sakura-sushi",
+          "start": 41,
+          "end": 135,
+          "text": "You take orders, answer questions about the menu and hours, and hand off to staff when needed."
+        },
+        {
+          "agent": "tonys-pizza",
+          "start": 41,
+          "end": 135,
+          "text": "You take orders, answer questions about the menu and hours, and hand off to staff when needed."
+        }
+      ]
+    },
+    {
+      "text": "Speak warmly and briefly.",
+      "agents": [
+        "luigis-trattoria",
+        "sakura-sushi",
+        "tonys-pizza"
+      ],
+      "occurrences": [
+        {
+          "agent": "luigis-trattoria",
+          "start": 142,
+          "end": 167,
+          "text": "Speak warmly and briefly."
+        },
+        {
+          "agent": "sakura-sushi",
+          "start": 137,
+          "end": 162,
+          "text": "Speak warmly and briefly."
+        },
+        {
+          "agent": "tonys-pizza",
+          "start": 253,
+          "end": 278,
+          "text": "Speak warmly and briefly."
+        }
+      ]
+    },
+    {
+      "text": "Ask one question at a time.",
+      "agents": [
+        "luigis-trattoria",
+        "sakura-sushi",
+        "tonys-pizza"
+      ],
+      "occurrences": [
+        {
+          "agent": "luigis-trattoria",
+          "start": 168,
+          "end": 195,
+          "text": "Ask one question at a time."
+        },
+        {
+          "agent": "sakura-sushi",
+          "start": 163,
+          "end": 190,
+          "text": "Ask one question at a time."
+        },
+        {
+          "agent": "tonys-pizza",
+          "start": 279,
+          "end": 306,
+          "text": "Ask one question at a time."
+        }
+      ]
+    },
+    {
+      "text": "Before hanging up, repeat the order total and the pickup or delivery time.",
+      "agents": [
+        "luigis-trattoria",
+        "sakura-sushi",
+        "tonys-pizza"
+      ],
+      "occurrences": [
+        {
+          "agent": "luigis-trattoria",
+          "start": 339,
+          "end": 413,
+          "text": "Before hanging up, repeat the order total and the pickup or delivery time."
+        },
+        {
+          "agent": "sakura-sushi",
+          "start": 490,
+          "end": 564,
+          "text": "Before hanging up, repeat the order total and the pickup or delivery time."
+        },
+        {
+          "agent": "tonys-pizza",
+          "start": 866,
+          "end": 940,
+          "text": "Before hanging up, repeat the order total and the pickup or delivery time."
+        }
+      ]
+    }
+  ],
+  "near_copies": [
+    {
+      "kind": "value",
+      "agents_by_variant": {
+        "You are the phone host for Luigi's Trattoria.": [
+          "luigis-trattoria"
+        ],
+        "You are the phone host for Sakura Sushi.": [
+          "sakura-sushi"
+        ],
+        "You are the phone host for Tony's Pizza.": [
+          "tonys-pizza"
+        ]
+      },
+      "differing_tokens": {
+        "luigis-trattoria": "Luigi's Trattoria",
+        "sakura-sushi": "Sakura Sushi",
+        "tonys-pizza": "Tony's Pizza"
+      },
+      "suggested_variable": "phone_host",
+      "occurrences": [
+        {
+          "agent": "luigis-trattoria",
+          "start": 0,
+          "end": 45,
+          "text": "You are the phone host for Luigi's Trattoria.",
+          "differing": [
+            {
+              "start": 27,
+              "end": 44,
+              "text": "Luigi's Trattoria"
+            }
+          ]
+        },
+        {
+          "agent": "sakura-sushi",
+          "start": 0,
+          "end": 40,
+          "text": "You are the phone host for Sakura Sushi.",
+          "differing": [
+            {
+              "start": 27,
+              "end": 39,
+              "text": "Sakura Sushi"
+            }
+          ]
+        },
+        {
+          "agent": "tonys-pizza",
+          "start": 0,
+          "end": 40,
+          "text": "You are the phone host for Tony's Pizza.",
+          "differing": [
+            {
+              "start": 27,
+              "end": 39,
+              "text": "Tony's Pizza"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "rule_word",
+      "agents_by_variant": {
+        "Never upsell more than twice per call.": [
+          "luigis-trattoria"
+        ],
+        "Never upsell more than once per call.": [
+          "sakura-sushi",
+          "tonys-pizza"
+        ]
+      },
+      "differing_tokens": {
+        "luigis-trattoria": "twice",
+        "sakura-sushi": "once",
+        "tonys-pizza": "once"
+      },
+      "suggested_variable": null,
+      "occurrences": [
+        {
+          "agent": "luigis-trattoria",
+          "start": 196,
+          "end": 234,
+          "text": "Never upsell more than twice per call.",
+          "differing": [
+            {
+              "start": 219,
+              "end": 224,
+              "text": "twice"
+            }
+          ]
+        },
+        {
+          "agent": "sakura-sushi",
+          "start": 191,
+          "end": 228,
+          "text": "Never upsell more than once per call.",
+          "differing": [
+            {
+              "start": 214,
+              "end": 218,
+              "text": "once"
+            }
+          ]
+        },
+        {
+          "agent": "tonys-pizza",
+          "start": 307,
+          "end": 344,
+          "text": "Never upsell more than once per call.",
+          "differing": [
+            {
+              "start": 330,
+              "end": 334,
+              "text": "once"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "only_in_one": {
+    "luigis-trattoria": 2,
+    "sakura-sushi": 5,
+    "tonys-pizza": 10
+  }
+}

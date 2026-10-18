@@ -1,7 +1,7 @@
 //! Tests of the format, rendering, plans and analysis, on tests/fixtures/restaurants.
 //! Command-line tests are in tests/cli.rs.
 
-use crate::analyze::{compare, lint, overlap, units};
+use crate::analyze::{compare, compare_json, lint, overlap, unit_spans, units};
 use crate::model::*;
 use crate::plan::{affected, make_plan, read_snapshot, snapshot};
 use crate::render::{render_workspace, write_build, Build};
@@ -815,7 +815,7 @@ fn originals() -> BTreeMap<String, String> {
 #[test]
 fn overlap_finds_text_every_prompt_shares() {
     let result = overlap(&originals(), 0.75);
-    let everyone: Vec<&str> = result.shared.iter().filter(|(a, _)| a.len() == 3).map(|(_, t)| t.as_str()).collect();
+    let everyone: Vec<&str> = result.shared.iter().filter(|s| s.agents().len() == 3).map(|s| s.text.as_str()).collect();
     assert!(everyone.contains(&"Speak warmly and briefly."));
     assert!(everyone.contains(&"Before hanging up, repeat the order total and the pickup or delivery time."));
 }
@@ -824,7 +824,12 @@ fn overlap_finds_text_every_prompt_shares() {
 fn overlap_finds_placeholder_candidates_and_drift() {
     let result = overlap(&originals(), 0.75);
     let find = |word: &str| {
-        &result.near_copies.iter().find(|nc| nc.variants.values().next().unwrap().contains(word)).unwrap().differing
+        &result
+            .near_copies
+            .iter()
+            .find(|nc| nc.variants.values().next().unwrap().text.contains(word))
+            .unwrap()
+            .differing
     };
     let host: Vec<(&str, &str)> = find("phone host").iter().map(|(a, d)| (a.as_str(), d.as_str())).collect();
     assert_eq!(
@@ -832,7 +837,78 @@ fn overlap_finds_placeholder_candidates_and_drift() {
         [("luigis-trattoria", "Luigi's Trattoria"), ("sakura-sushi", "Sakura Sushi"), ("tonys-pizza", "Tony's Pizza")]
     );
     assert_eq!(find("upsell")["luigis-trattoria"], "twice");
-    assert!(!result.shared.iter().any(|(_, t)| t.contains("upsell")), "drifted text is reported once, as a near-copy");
+    assert!(!result.shared.iter().any(|s| s.text.contains("upsell")), "drifted text is reported once, as a near-copy");
+}
+
+#[test]
+fn unit_spans_point_at_the_original_text() {
+    let text = "# Host\n\nYou are the host for Café Ünder.  Speak warmly and briefly.\r\n- Goal: Ask one question at a time.\n1. Never upsell more than once.\n";
+    let spans = unit_spans(text);
+    let texts: Vec<&str> = spans.iter().map(|s| s.text.as_str()).collect();
+    assert_eq!(texts, units(text));
+    assert_eq!(
+        texts,
+        [
+            "You are the host for Café Ünder.",
+            "Speak warmly and briefly.",
+            "Ask one question at a time.",
+            "Never upsell more than once."
+        ]
+    );
+    let chars: Vec<char> = text.chars().collect();
+    for s in &spans {
+        assert_eq!(chars[s.start..s.end].iter().collect::<String>(), s.text, "offsets are in characters");
+    }
+}
+
+#[test]
+fn overlap_json_classifies_near_copies_and_locates_them() {
+    let prompts: BTreeMap<String, String> = [
+        ("bistro", "You are the host at Bistro Blue, the corner restaurant on Main Street.\nGuests must show ID for wine.\nWe close at 10pm."),
+        ("diner", "You are the host at Dina's Diner, the corner restaurant on Main Street.\nGuests may show ID for wine.\nWe close at 10pm."),
+    ]
+    .into_iter()
+    .map(|(a, p)| (a.to_string(), p.to_string()))
+    .collect();
+    let json = overlap(&prompts, 0.75).to_json();
+    assert_eq!(json["shared"][0]["text"], "We close at 10pm.");
+    let near = json["near_copies"].as_array().unwrap();
+    assert_eq!(near.len(), 2);
+    assert_eq!(near[0]["kind"], "value");
+    assert_eq!(near[0]["suggested_variable"], "host");
+    assert_eq!(near[0]["differing_tokens"]["diner"], "Dina's Diner");
+    assert_eq!(near[1]["kind"], "rule_word", "must vs may is drift, not a value");
+    assert_eq!(near[1]["suggested_variable"], serde_json::Value::Null);
+    assert_eq!(near[1]["agents_by_variant"]["Guests may show ID for wine."], serde_json::json!(["diner"]));
+    for nc in near {
+        for o in nc["occurrences"].as_array().unwrap() {
+            let prompt: Vec<char> = prompts[o["agent"].as_str().unwrap()].chars().collect();
+            let at = |v: &serde_json::Value| -> String {
+                prompt[v["start"].as_u64().unwrap() as usize..v["end"].as_u64().unwrap() as usize].iter().collect()
+            };
+            assert_eq!(at(o), o["text"]);
+            for d in o["differing"].as_array().unwrap() {
+                assert_eq!(at(d), d["text"]);
+            }
+        }
+    }
+}
+
+#[test]
+fn compare_json_reports_scores_and_reworded_candidates() {
+    let build = build(&sops());
+    let json = compare_json(&compare(&build, &originals(), 0.9), &build);
+    assert_eq!(json["summary"], serde_json::json!({"ok": false, "agents": 3, "failed": 2}));
+    let luigis = &json["agents"][0];
+    assert_eq!(
+        (luigis["agent"].as_str(), luigis["sentences_total"].as_u64(), luigis["kept"].as_u64()),
+        (Some("luigis-trattoria"), Some(8), Some(7))
+    );
+    assert_eq!(luigis["score"], 0.875);
+    assert_eq!(luigis["changed"][0]["changed_words"], serde_json::json!({"original": "twice", "compiled": "once"}));
+    let tonys = &json["agents"][2];
+    let candidates = tonys["reworded"][0]["compiled_candidates"].as_array().unwrap();
+    assert!(candidates.iter().any(|c| c == "Name the specific allergen back to the customer"), "{candidates:?}");
 }
 
 #[test]
@@ -861,7 +937,7 @@ fn compare_reports_changed_missing_and_reworded() {
         results["sakura-sushi"].changed,
         [pair("Ask up to two questions at a time.", "Ask one question at a time.")]
     );
-    assert!(results["tonys-pizza"].reworded.iter().any(|u| u.starts_with("ALLERGIES:")));
+    assert!(results["tonys-pizza"].reworded.iter().any(|(u, _)| u.starts_with("ALLERGIES:")));
     for r in results.values() {
         assert!(!r.ok() || (r.agent == "tonys-pizza" && r.changed.is_empty()), "{} should not be ok", r.agent);
         assert!(!r.added.iter().any(|u| u.contains("tool.")), "sopc's own tool lines are not 'added'");

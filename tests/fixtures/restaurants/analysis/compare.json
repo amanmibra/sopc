@@ -1,0 +1,218 @@
+{
+  "summary": {
+    "ok": false,
+    "agents": 3,
+    "failed": 2
+  },
+  "agents": [
+    {
+      "agent": "luigis-trattoria",
+      "ok": false,
+      "sentences_total": 8,
+      "kept": 7,
+      "score": 0.875,
+      "lost": [],
+      "changed": [
+        {
+          "original": "Never upsell more than twice per call.",
+          "compiled": "Never upsell more than once per call.",
+          "changed_words": {
+            "original": "twice",
+            "compiled": "once"
+          }
+        }
+      ],
+      "reworded": [],
+      "added": [
+        {
+          "text": "Never upsell more than once per call."
+        },
+        {
+          "text": "Customer leaves knowing whether their order is safe for their allergy."
+        },
+        {
+          "text": "Any order where the customer mentions a food allergy or dietary restriction."
+        },
+        {
+          "text": "Parents often ask on behalf of a child."
+        },
+        {
+          "text": "Confirm who the allergy is for before checking items."
+        },
+        {
+          "text": "Ask if anyone in the order has a food allergy"
+        },
+        {
+          "text": "Name the specific allergen back to the customer"
+        },
+        {
+          "text": "Check each item the customer ordered against luigis.com/menu#allergens."
+        },
+        {
+          "text": "Never say an item is \"allergen-free\" or \"safe\""
+        },
+        {
+          "text": "Never place the order before allergens are confirmed."
+        },
+        {
+          "text": "Customer mentions anaphylaxis or an EpiPen; transfer to the manager on duty."
+        },
+        {
+          "text": "Delivery orders have a confirmed address inside the delivery zone."
+        },
+        {
+          "text": "The customer asks for delivery."
+        },
+        {
+          "text": "Ask for the full delivery address"
+        },
+        {
+          "text": "Check the address is inside the delivery zone."
+        },
+        {
+          "text": "Tell the customer the estimated delivery time"
+        },
+        {
+          "text": "Any order with more than 10 items or a total over $200."
+        },
+        {
+          "text": "Never promise a pickup time the kitchen hasn't confirmed"
+        },
+        {
+          "text": "Customer asks for catering or staff on site; transfer to the manager on duty"
+        },
+        {
+          "text": "The customer has a confirmed table, or knows exactly why one isn't available."
+        },
+        {
+          "text": "The customer wants to book, change or cancel a table."
+        },
+        {
+          "text": "Ask for party size, date and time"
+        },
+        {
+          "text": "Confirm the booking details and the name on the reservation"
+        },
+        {
+          "text": "Never double-book a table"
+        }
+      ]
+    },
+    {
+      "agent": "sakura-sushi",
+      "ok": true,
+      "sentences_total": 11,
+      "kept": 11,
+      "score": 1.0,
+      "lost": [],
+      "changed": [],
+      "reworded": [],
+      "added": [
+        {
+          "text": "Customer leaves knowing whether their order is safe for their allergy."
+        },
+        {
+          "text": "Any order where the customer mentions a food allergy or dietary restriction."
+        },
+        {
+          "text": "Parents often ask on behalf of a child."
+        },
+        {
+          "text": "Confirm who the allergy is for before checking items."
+        },
+        {
+          "text": "Ask if anyone in the order has a food allergy"
+        },
+        {
+          "text": "Name the specific allergen back to the customer"
+        },
+        {
+          "text": "Check each item the customer ordered against sakurasushi.nyc/allergens."
+        },
+        {
+          "text": "Never say an item is \"allergen-free\" or \"safe\""
+        },
+        {
+          "text": "Never place the order before allergens are confirmed."
+        },
+        {
+          "text": "Customer mentions anaphylaxis or an EpiPen; transfer to the head chef."
+        },
+        {
+          "text": "The customer has a confirmed table, or knows exactly why one isn't available."
+        },
+        {
+          "text": "The customer wants to book, change or cancel a table."
+        }
+      ]
+    },
+    {
+      "agent": "tonys-pizza",
+      "ok": false,
+      "sentences_total": 16,
+      "kept": 15,
+      "score": 0.9375,
+      "lost": [],
+      "changed": [
+        {
+          "original": "If they mention anaphylaxis or an EpiPen, transfer to the manager on duty.",
+          "compiled": "Customer mentions anaphylaxis or an EpiPen; transfer to the manager on duty.",
+          "changed_words": {
+            "original": "If they mention",
+            "compiled": "Customer mentions"
+          }
+        }
+      ],
+      "reworded": [
+        {
+          "original": "ALLERGIES: If someone mentions a food allergy or dietary restriction, ask if anyone in the order has a food allergy, name the specific allergen back to the customer, and check each item they ordered against tonys.com/allergens using lookup_allergens.",
+          "compiled_candidates": [
+            "Any order where the customer mentions a food allergy or dietary restriction.",
+            "Ask if anyone in the order has a food allergy",
+            "Name the specific allergen back to the customer",
+            "Check each item the customer ordered against tonys.com/allergens."
+          ]
+        }
+      ],
+      "added": [
+        {
+          "text": "Customer leaves knowing whether their order is safe for their allergy."
+        },
+        {
+          "text": "Any order where the customer mentions a food allergy or dietary restriction."
+        },
+        {
+          "text": "Parents often ask on behalf of a child."
+        },
+        {
+          "text": "Confirm who the allergy is for before checking items."
+        },
+        {
+          "text": "Delivery orders have a confirmed address inside the delivery zone."
+        },
+        {
+          "text": "The customer asks for delivery."
+        },
+        {
+          "text": "Ask for the full delivery address"
+        },
+        {
+          "text": "Check the address is inside the delivery zone."
+        },
+        {
+          "text": "Tell the customer the estimated delivery time"
+        },
+        {
+          "text": "Any order with more than 10 items or a total over $200."
+        },
+        {
+          "text": "Never promise a pickup time the kitchen hasn't confirmed"
+        },
+        {
+          "text": "Customer asks for catering or staff on site; transfer to the manager on duty"
+        }
+      ]
+    }
+  ],
+  "no_original": []
+}
